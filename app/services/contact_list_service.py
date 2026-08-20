@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.contact_list import ContactList
+from app.repositories.campaign_repo import campaign_repository
 from app.repositories.contact_list_repo import contact_list_repository
 from app.schemas.common import PaginatedResponse
 from app.schemas.contact_list import ContactListCreate, ContactListResponse, ContactListUpdate
@@ -83,7 +84,16 @@ class ContactListService:
         owner_id: UUID,
     ) -> None:
         contact_list = await self.get_by_id(db, list_id=list_id, owner_id=owner_id)
+
+        is_referenced = await campaign_repository.is_contact_list_referenced(db, contact_list_id=list_id)
+        if is_referenced:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Contact list cannot be deleted because it is referenced by existing campaigns",
+            )
+
         await contact_list_repository.delete(db, contact_list)
+
 
 
 contact_list_service = ContactListService()

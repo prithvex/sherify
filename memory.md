@@ -2,39 +2,32 @@
 
 ## Project Status
 
-- **Current Version**: V1 — Audience Management
-- **Completed Versions**: Initialization, V1 (Audience Management)
-- **Current Development Phase**: V1 Complete
+- **Current Version**: V2 — Campaign Engine
+- **Completed Versions**: Initialization, V1 (Audience Management), V2 (Campaign Engine)
+- **Current Development Phase**: V2 Complete
 - **Overall Health**: Healthy
-- **V1 Status**: Completed
+- **V2 Status**: Completed
 
-### V1 Completed Features
-- **User Authentication & Authorization**:
-  - `POST /api/v1/auth/register` — User registration with email uniqueness and bcrypt password hashing.
-  - `POST /api/v1/auth/login` — JWT token generation with expiration.
-  - `GET /api/v1/users/me` — Authenticated profile access with active status validation.
-  - Ownership protection via `get_current_user` and `get_current_active_user` dependencies.
-- **ContactList Management**:
-  - Full CRUD (`POST`, `GET`, `GET /{id}`, `PATCH /{id}`, `DELETE /{id}`) on `/api/v1/contact-lists`.
-  - Pagination (`page`, `page_size`) and keyword search filtering (`search`).
-  - Strict ownership isolation: users cannot view, edit, or delete lists belonging to others.
-- **Subscriber Management**:
-  - Full CRUD (`POST`, `GET`, `GET /{id}`, `PATCH /{id}`, `DELETE /{id}`) on `/api/v1/contact-lists/{list_id}/subscribers`.
-  - Pagination, status filtering (`status`), and keyword search (`search`).
-  - Per-contact-list email uniqueness: subscribers cannot have duplicate emails in the same list, but can exist in multiple different lists.
-  - JSON metadata support for dynamic custom attributes.
-  - Strict list and subscriber ownership verification.
-- **Database & Persistence**:
-  - PostgreSQL 16 persistence via async SQLAlchemy 2.x and `asyncpg`.
-  - UUID primary keys, foreign keys with `ON DELETE CASCADE`, composite indexes.
-  - Alembic migration `001_initial_v1` verified for complete upgrade/downgrade/upgrade cycle.
-- **Testing**:
-  - 40 passing tests covering unit, integration, authentication, authorization, ownership isolation, pagination, filters, and DB constraints.
-- **Docker**:
-  - Docker Compose orchestration with `api`, `postgres:16-alpine`, and `redis:7-alpine`.
+### Completed Work
+
+- **Initialization**: FastAPI scaffolding, async SQLAlchemy 2.x, Alembic, Docker Compose, Redis, pytest async suite.
+- **V1 (Audience Management)**:
+  - User model & JWT authentication (`POST /auth/register`, `POST /auth/login`, `GET /users/me`).
+  - ContactList CRUD (`/api/v1/contact-lists`).
+  - Subscriber CRUD (`/api/v1/contact-lists/{list_id}/subscribers`) with scoped per-list email uniqueness.
+  - Ownership protection & pagination/search conventions.
+- **V2 (Campaign Engine)**:
+  - `EmailTemplate` model, schema, repository, service, and CRUD endpoints (`/api/v1/templates`).
+  - `EmailCampaign` model, schema, repository, service, and CRUD endpoints (`/api/v1/campaigns`).
+  - Strict foreign resource ownership validation: creating/editing a campaign requires the user to own both the referenced template and contact list.
+  - State machine: campaigns default to `DRAFT` upon creation.
+  - Atomically validated `READY` transition via `POST /api/v1/campaigns/{id}/ready`.
+  - Immutability of `READY` campaigns (attempts to PATCH a `READY` campaign return HTTP 400).
+  - Referential integrity: deleting a template or contact list referenced by campaigns is safely rejected with HTTP 409 Conflict.
+  - Migration `002_v2_campaign_engine` verified for complete upgrade/downgrade/upgrade cycle.
+  - 69 automated tests (40 V1 tests + 29 V2 tests) passing with 100% success.
 
 ### Future Versions Not Implemented
-- Campaigns & Engine (V2)
 - Celery & Redis Task Processing (V3)
 - CSV Ingestion (V4)
 - Tracking & Webhooks (V5)
@@ -67,120 +60,92 @@
 
 ---
 
-## Project Structure
-
-```
-sherify/
-├── alembic/                # Async database migration scripts
-│   ├── versions/           # Migration versions (001_initial_v1_audience_management.py)
-│   ├── env.py              # Async migration runner loading Base.metadata
-│   └── script.py.mako      # Migration file template
-├── app/                    # Core application package
-│   ├── api/                # API router layer
-│   │   ├── v1/             # API version 1 endpoints
-│   │   │   ├── endpoints/  # Health, auth, users, contact_lists
-│   │   │   └── api.py      # Router aggregation for v1
-│   │   └── deps.py         # Dependencies (get_db, get_current_user, get_current_active_user)
-│   ├── core/               # App configuration & core components
-│   │   ├── config.py       # Pydantic v2 BaseSettings
-│   │   ├── database.py     # SQLAlchemy 2.x async engine, sessionmaker, get_db
-│   │   └── security.py     # Password hashing & JWT encode/decode
-│   ├── models/             # Database models
-│   │   ├── base.py         # DeclarativeBase, UUIDMixin, TimestampMixin
-│   │   ├── user.py         # User model
-│   │   ├── contact_list.py # ContactList model
-│   │   └── subscriber.py   # Subscriber model
-│   ├── repositories/       # Data access layer
-│   │   ├── user_repo.py    # User repository
-│   │   ├── contact_list_repo.py # ContactList repository
-│   │   └── subscriber_repo.py   # Subscriber repository
-│   ├── schemas/            # Pydantic schemas / DTOs
-│   │   ├── common.py       # Pagination schemas
-│   │   ├── user.py         # User DTOs
-│   │   ├── contact_list.py # ContactList DTOs
-│   │   ├── subscriber.py   # Subscriber DTOs
-│   │   └── health.py       # Health check response schemas
-│   ├── services/           # Business logic layer
-│   │   ├── auth_service.py # Authentication & registration
-│   │   ├── contact_list_service.py # ContactList business logic
-│   │   └── subscriber_service.py   # Subscriber business logic
-│   └── main.py             # FastAPI entrypoint, lifespan, CORS, and root routes
-├── tests/                  # Pytest test suite (40 passing tests)
-│   ├── conftest.py         # Test fixtures, test engine, async HTTP client
-│   ├── test_auth.py        # Registration, login, password security tests
-│   ├── test_users.py       # User profile and token verification tests
-│   ├── test_contact_lists.py # Contact list CRUD and isolation tests
-│   ├── test_subscribers.py # Subscriber CRUD and uniqueness tests
-│   ├── test_database_constraints.py # Cascade and DB constraint tests
-│   └── test_health.py      # Health check and startup tests
-├── .dockerignore           # Files excluded from Docker builds
-├── .env.example            # Sample environment variables
-├── .gitignore              # Files excluded from git
-├── alembic.ini             # Alembic migration configuration
-├── docker-compose.yml      # Multi-container local orchestration (API, Postgres, Redis)
-├── Dockerfile              # Container definition for FastAPI application
-├── memory.md               # Persistent engineering memory
-├── pyproject.toml          # Build configuration and pytest options
-├── README.md               # Project overview and developer guide
-└── requirements.txt        # Minimal async-first application dependencies
-```
-
----
-
 ## Database
 
 ### Domain Models
 1. **`User`** (`users` table):
-   - `id`: UUID (PK, Indexed)
-   - `email`: VARCHAR(255) (Unique, Indexed, Non-null)
-   - `password_hash`: VARCHAR(255) (Non-null)
-   - `is_active`: BOOLEAN (Default True, Non-null)
-   - `created_at`, `updated_at`: TIMESTAMP WITH TIME ZONE (Non-null)
-   - Relationship: `contact_lists` (cascade delete)
+   - `id`: UUID (PK)
+   - `email`: VARCHAR(255) (Unique, Indexed)
+   - `password_hash`: VARCHAR(255)
+   - `is_active`: BOOLEAN (Default True)
+   - `created_at`, `updated_at`: TIMESTAMP WITH TIME ZONE
+   - Relationships: `contact_lists` (cascade delete)
 
 2. **`ContactList`** (`contact_lists` table):
-   - `id`: UUID (PK, Indexed)
-   - `owner_id`: UUID (FK to `users.id` ON DELETE CASCADE, Indexed, Non-null)
-   - `name`: VARCHAR(255) (Non-null)
+   - `id`: UUID (PK)
+   - `owner_id`: UUID (FK to `users.id` ON DELETE CASCADE, Indexed)
+   - `name`: VARCHAR(255)
    - `description`: TEXT (Nullable)
-   - `created_at`, `updated_at`: TIMESTAMP WITH TIME ZONE (Non-null)
-   - Relationship: `owner` (`User`), `subscribers` (cascade delete)
+   - `created_at`, `updated_at`: TIMESTAMP WITH TIME ZONE
+   - Relationships: `owner` (`User`), `subscribers` (cascade delete)
 
 3. **`Subscriber`** (`subscribers` table):
-   - `id`: UUID (PK, Indexed)
-   - `contact_list_id`: UUID (FK to `contact_lists.id` ON DELETE CASCADE, Indexed, Non-null)
-   - `email`: VARCHAR(255) (Indexed, Non-null)
+   - `id`: UUID (PK)
+   - `contact_list_id`: UUID (FK to `contact_lists.id` ON DELETE CASCADE, Indexed)
+   - `email`: VARCHAR(255) (Indexed)
    - `first_name`: VARCHAR(100) (Nullable)
    - `last_name`: VARCHAR(100) (Nullable)
-   - `status`: VARCHAR(50) (Default 'active', Indexed, Non-null)
-   - `metadata`: JSON (Default '{}', Non-null)
-   - `created_at`, `updated_at`: TIMESTAMP WITH TIME ZONE (Non-null)
-   - **Constraints**:
-     - `UniqueConstraint("contact_list_id", "email", name="uq_subscriber_contact_list_email")`
-     - Index: `("contact_list_id", "status")`
+   - `status`: VARCHAR(50) (Default 'active', Indexed)
+   - `metadata`: JSON (Default '{}')
+   - `created_at`, `updated_at`: TIMESTAMP WITH TIME ZONE
+   - Constraint: `UniqueConstraint("contact_list_id", "email")`
+
+4. **`EmailTemplate`** (`email_templates` table):
+   - `id`: UUID (PK)
+   - `owner_id`: UUID (FK to `users.id` ON DELETE CASCADE, Indexed)
+   - `name`: VARCHAR(255)
+   - `subject`: VARCHAR(255)
+   - `html_content`: TEXT
+   - `text_content`: TEXT (Nullable)
+   - `created_at`, `updated_at`: TIMESTAMP WITH TIME ZONE
+   - Relationship: `owner` (`User`), `campaigns` (`EmailCampaign`)
+
+5. **`EmailCampaign`** (`email_campaigns` table):
+   - `id`: UUID (PK)
+   - `owner_id`: UUID (FK to `users.id` ON DELETE CASCADE, Indexed)
+   - `name`: VARCHAR(255)
+   - `subject`: VARCHAR(255)
+   - `template_id`: UUID (FK to `email_templates.id` ON DELETE RESTRICT, Indexed)
+   - `contact_list_id`: UUID (FK to `contact_lists.id` ON DELETE RESTRICT, Indexed)
+   - `status`: VARCHAR(50) (Default 'draft', Indexed)
+   - `created_at`, `updated_at`: TIMESTAMP WITH TIME ZONE
+   - Relationships: `owner` (`User`), `template` (`EmailTemplate`), `contact_list` (`ContactList`)
 
 ---
 
-## API Endpoints (V1)
+## API Endpoints
 
 ### Auth & Users
 - `POST /api/v1/auth/register` — Register user.
 - `POST /api/v1/auth/login` — Login & receive JWT.
 - `GET /api/v1/users/me` — Current user profile.
 
-### Contact Lists
+### Contact Lists & Subscribers
 - `POST /api/v1/contact-lists` — Create list.
-- `GET /api/v1/contact-lists` — Paginated lists with `page`, `page_size`, `search`.
+- `GET /api/v1/contact-lists` — Paginated lists (`page`, `page_size`, `search`).
 - `GET /api/v1/contact-lists/{list_id}` — Get single list.
 - `PATCH /api/v1/contact-lists/{list_id}` — Update list.
-- `DELETE /api/v1/contact-lists/{list_id}` — Delete list.
-
-### Subscribers
+- `DELETE /api/v1/contact-lists/{list_id}` — Delete list (blocked if referenced by campaign).
 - `POST /api/v1/contact-lists/{list_id}/subscribers` — Create subscriber.
-- `GET /api/v1/contact-lists/{list_id}/subscribers` — Paginated subscribers with `page`, `page_size`, `status`, `search`.
-- `GET /api/v1/contact-lists/{list_id}/subscribers/{subscriber_id}` — Get single subscriber.
+- `GET /api/v1/contact-lists/{list_id}/subscribers` — Paginated subscribers (`page`, `page_size`, `status`, `search`).
+- `GET /api/v1/contact-lists/{list_id}/subscribers/{subscriber_id}` — Get subscriber.
 - `PATCH /api/v1/contact-lists/{list_id}/subscribers/{subscriber_id}` — Update subscriber.
 - `DELETE /api/v1/contact-lists/{list_id}/subscribers/{subscriber_id}` — Delete subscriber.
+
+### Email Templates (V2)
+- `POST /api/v1/templates` — Create template.
+- `GET /api/v1/templates` — Paginated templates (`page`, `page_size`, `search`).
+- `GET /api/v1/templates/{template_id}` — Get single template.
+- `PATCH /api/v1/templates/{template_id}` — Update template.
+- `DELETE /api/v1/templates/{template_id}` — Delete template (blocked if referenced by campaign).
+
+### Email Campaigns (V2)
+- `POST /api/v1/campaigns` — Create campaign (defaults to `DRAFT`).
+- `GET /api/v1/campaigns` — Paginated campaigns (`page`, `page_size`, `status`, `search`).
+- `GET /api/v1/campaigns/{campaign_id}` — Get single campaign.
+- `PATCH /api/v1/campaigns/{campaign_id}` — Update campaign (allowed only for `DRAFT`).
+- `DELETE /api/v1/campaigns/{campaign_id}` — Delete campaign.
+- `POST /api/v1/campaigns/{campaign_id}/ready` — Transition `DRAFT` → `READY`.
 
 ### Health
 - `GET /health` — Root health probe.
@@ -190,19 +155,30 @@ sherify/
 
 ## Architectural Decisions
 
-1. **4-Tier Architecture**: Router → Service → Repository → Database. Thin route handlers, all business rules and ownership checks inside services, SQL queries encapsulated in repositories.
-2. **Per-List Subscriber Uniqueness**: Subscriber email is constrained unique per `contact_list_id` rather than globally, enabling users to maintain multi-list subscriptions.
-3. **Strict Ownership Isolation**: Service methods query lists by both `list_id` and `owner_id`. Unauthorized cross-user requests return 404 to prevent enumeration and access.
-4. **PostgreSQL Parity & NullPool in Tests**: Unit/integration tests use `NullPool` to prevent connection leaks across async test loops while running directly against PostgreSQL.
-5. **No Premature Celery Integration**: Kept queue infrastructure cleanly in Redis without premature Celery workers before V3.
+1. **4-Tier Layered Architecture**: Maintained strict separation: Router → Service → Repository → Database.
+2. **Campaign State Machine**: Functional states in V2 are strictly `DRAFT` and `READY`. Future states (`QUEUED`, `SENDING`, `COMPLETED`, `FAILED`, `CANCELLED`) are reserved in `CampaignStatus` enum.
+3. **READY Campaigns Are Immutable**: Once a campaign reaches `READY`, normal `PATCH` operations are rejected with HTTP 400 to prevent silent invalidation before execution.
+4. **Foreign Resource Ownership Validation**: Campaign creation and update methods verify that both `template_id` and `contact_list_id` belong to the authenticated `owner_id`.
+5. **Referential Integrity on Deletion**: `template_id` and `contact_list_id` use `ON DELETE RESTRICT` at the DB level, and service layers return HTTP 409 Conflict if deletion is attempted while referenced by campaigns.
+6. **No CampaignRecipient in V2**: Explicitly deferred to V3 where asynchronous campaign execution is introduced.
+7. **No Email Sending in V2**: Campaign engine only manages templates, campaigns, and draft/ready state preparation.
 
 ---
 
-## Do Not Break
+## Known Issues
 
-- Do not bypass ownership verification when querying ContactLists or Subscribers.
-- Do not make subscriber email globally unique across contact lists.
-- Do not introduce synchronous database drivers or blocking queries into async endpoints.
-- Do not put business logic or direct database queries in route handlers.
-- Maintain Pydantic v2 and SQLAlchemy 2.x idioms.
-- Always update `memory.md` when models, migrations, endpoints, or configurations change.
+- None.
+
+---
+
+## Current Work
+
+- None.
+
+---
+
+## Next
+
+- **V3 — Celery + Redis Campaign Execution**:
+  - Introduce `CampaignRecipient` model to capture recipient snapshots.
+  - Implement Celery worker tasks consuming from Redis to dispatch campaign batches asynchronously.

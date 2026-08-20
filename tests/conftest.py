@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token, get_password_hash
 from app.main import app
-from app.models import Base, ContactList, Subscriber, User
+from app.models import Base, ContactList, EmailCampaign, EmailTemplate, Subscriber, User
 
 
 @pytest.fixture(scope="session")
@@ -57,7 +57,7 @@ async def clean_database_tables(test_engine):
     Clean all table data before each test to ensure test isolation.
     """
     async with test_engine.begin() as conn:
-        await conn.execute(text("TRUNCATE TABLE subscribers, contact_lists, users RESTART IDENTITY CASCADE;"))
+        await conn.execute(text("TRUNCATE TABLE email_campaigns, email_templates, subscribers, contact_lists, users RESTART IDENTITY CASCADE;"))
     yield
 
 
@@ -195,3 +195,57 @@ async def contact_list_b(db_session: AsyncSession, user_b: User) -> ContactList:
     await db_session.commit()
     await db_session.refresh(cl)
     return cl
+
+
+@pytest.fixture
+async def template_a(db_session: AsyncSession, user_a: User) -> EmailTemplate:
+    """Create an email template owned by user A."""
+    template = EmailTemplate(
+        owner_id=user_a.id,
+        name="Welcome Newsletter",
+        subject="Welcome to Sherify!",
+        html_content="<h1>Welcome</h1><p>Thanks for joining!</p>",
+        text_content="Welcome! Thanks for joining!",
+    )
+    db_session.add(template)
+    await db_session.commit()
+    await db_session.refresh(template)
+    return template
+
+
+@pytest.fixture
+async def template_b(db_session: AsyncSession, user_b: User) -> EmailTemplate:
+    """Create an email template owned by user B."""
+    template = EmailTemplate(
+        owner_id=user_b.id,
+        name="User B Promo",
+        subject="Special offer from User B",
+        html_content="<h1>Special Offer</h1>",
+        text_content="Special Offer",
+    )
+    db_session.add(template)
+    await db_session.commit()
+    await db_session.refresh(template)
+    return template
+
+
+@pytest.fixture
+async def campaign_a(
+    db_session: AsyncSession,
+    user_a: User,
+    template_a: EmailTemplate,
+    contact_list_a: ContactList,
+) -> EmailCampaign:
+    """Create an email campaign in DRAFT owned by user A."""
+    campaign = EmailCampaign(
+        owner_id=user_a.id,
+        name="User A Launch Campaign",
+        subject="Big Product Launch!",
+        template_id=template_a.id,
+        contact_list_id=contact_list_a.id,
+        status="draft",
+    )
+    db_session.add(campaign)
+    await db_session.commit()
+    await db_session.refresh(campaign)
+    return campaign
