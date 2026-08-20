@@ -2,36 +2,35 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg)](https://fastapi.tiangolo.com)
+[![React 18](https://img.shields.io/badge/React-18-blue.svg)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)](https://www.typescriptlang.org)
+[![Vite](https://img.shields.io/badge/Vite-5-purple.svg)](https://vitejs.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue.svg)](https://www.postgresql.org)
-[![SQLAlchemy 2.x](https://img.shields.io/badge/SQLAlchemy-2.0+-red.svg)](https://www.sqlalchemy.org)
 [![Celery](https://img.shields.io/badge/Celery-5.3+-green.svg)](https://docs.celeryq.dev)
 [![Redis](https://img.shields.io/badge/Redis-7-red.svg)](https://redis.io)
-[![Alembic](https://img.shields.io/badge/Alembic-1.13+-orange.svg)](https://alembic.sqlalchemy.org)
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue.svg)](https://www.docker.com)
 
-> **Current Implementation Status**: **V5 — Tracking & Webhooks Completed.**
+> **Current Implementation Status**: **Frontend V1 + Backend V1–V5 Completed.**
 
 ---
 
 ## 📖 Project Purpose
 
-The **Automated Mass Campaign Manager** is a high-scale, production-oriented email campaign system engineered to manage audiences, ingest large subscriber datasets via streaming CSV imports, execute high-volume campaigns asynchronously, track email engagement and bounces, and provide aggregated campaign performance statistics.
+The **Automated Mass Campaign Manager** is a high-scale, production-oriented email campaign platform engineered to manage audiences, ingest large subscriber datasets via streaming CSV imports, compose reusable templates with safe live preview, execute high-volume campaigns asynchronously with Celery/Redis, track email opens via tracking pixels, ingest delivery/bounce provider webhooks, and visualize durable SQL-aggregated analytics in a sleek SaaS dashboard.
 
 ---
 
-## 🏛️ Architecture & Design Pattern
-
-The system strictly enforces a 4-tier layered architecture with asynchronous background execution:
+## 🏛️ System Architecture
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│                   Router Layer                         │
-│   (HTTP parsing, Pydantic DTOs, dependency injection)   │
+│             Frontend SPA (React 18 + TS + Vite)         │
+│   (Dashboard, Audiences, CSV Import, Templates, Stats) │
 └───────────────────────────┬────────────────────────────┘
-                            │
+                            │ (REST HTTP / JWT Bearer)
 ┌───────────────────────────▼────────────────────────────┐
-│                   Service Layer                        │
-│ (Business logic, ownership validation, JWT & state)    │
+│               Backend API (FastAPI)                    │
+│   (Routers, Pydantic DTOs, Security, State Machine)    │
 └─────────────────────┬──────────────┬───────────────────┘
                       │              │ (Enqueue Tasks)
                       │              ▼
@@ -64,188 +63,99 @@ The system strictly enforces a 4-tier layered architecture with asynchronous bac
 
 ```
 sherify/
-├── alembic/                    # Async database migration scripts
-│   ├── versions/               # Migration version files (001_initial_v1, 002_v2, 003_v3, 004_v4, 005_v5)
-│   ├── env.py                  # Alembic environment runner
-│   └── script.py.mako          # Migration template
-├── app/                        # Application core package
-│   ├── api/                    # API router layer
-│   │   ├── v1/                 # API Version 1
-│   │   │   ├── endpoints/      # Endpoints (auth, users, contact_lists, templates, campaigns, imports, webhooks, tracking, health)
-│   │   │   └── api.py          # V1 router aggregation
-│   │   └── deps.py             # FastAPI dependencies (get_db, get_current_user, get_current_active_user)
-│   ├── core/                   # Core application configuration & security
-│   │   ├── config.py           # Pydantic Settings
-│   │   ├── database.py         # Async SQLAlchemy engine & sessionmaker (NullPool for event-loop safety)
-│   │   └── security.py         # Password hashing (bcrypt) & JWT helpers
-│   ├── models/                 # SQLAlchemy 2.x declarative models
-│   │   ├── base.py             # Base model, UUIDMixin, TimestampMixin
-│   │   ├── user.py             # User entity
-│   │   ├── contact_list.py     # ContactList entity
-│   │   ├── subscriber.py       # Subscriber entity with per-list uniqueness
-│   │   ├── template.py         # EmailTemplate entity
-│   │   ├── campaign.py         # EmailCampaign entity
-│   │   ├── recipient.py        # CampaignRecipient snapshot entity (tracking fields added in V5)
-│   │   ├── import_job.py       # ImportJob and ImportError entities (V4)
-│   │   └── tracking.py         # TrackingEvent and WebhookEvent entities (V5)
-│   ├── providers/              # Email provider abstraction (V3)
-│   │   ├── base.py             # BaseEmailProvider ABC & dataclasses
-│   │   ├── mock.py             # MockEmailProvider with test failure hooks
-│   │   └── __init__.py         # Provider factory (get_email_provider)
-│   ├── webhooks/               # Webhook verification & parsing abstraction (V5)
-│   │   ├── base.py             # BaseWebhookVerifier & BaseWebhookParser ABCs
-│   │   ├── mock.py             # MockWebhookVerifier & MockWebhookParser
-│   │   └── __init__.py         # Webhook provider factory
-│   ├── storage/                # File storage abstraction (V4)
-│   │   ├── base.py             # BaseFileStorage ABC
-│   │   ├── local.py            # LocalFileStorage implementation
-│   │   └── __init__.py         # Storage factory (get_file_storage)
+├── alembic/                    # Async database migration scripts (001-005)
+├── app/                        # FastAPI Backend core package
+│   ├── api/                    # API router layer (auth, users, contact_lists, templates, campaigns, imports, webhooks, tracking)
+│   ├── core/                   # Config, database engine, password hashing, JWT
+│   ├── models/                 # SQLAlchemy models (User, ContactList, Subscriber, Template, Campaign, Recipient, Import, Tracking)
+│   ├── providers/              # Email provider abstraction (MockEmailProvider)
+│   ├── webhooks/               # Webhook verifiers & parsers (MockWebhookVerifier/Parser)
+│   ├── storage/                # File storage abstraction (LocalFileStorage)
 │   ├── repositories/           # Data access repository layer
-│   │   ├── user_repo.py        # User queries
-│   │   ├── contact_list_repo.py# ContactList queries & pagination
-│   │   ├── subscriber_repo.py  # Subscriber queries, pagination & streaming
-│   │   ├── template_repo.py    # EmailTemplate queries & referential checks
-│   │   ├── campaign_repo.py    # EmailCampaign queries & referential checks
-│   │   ├── recipient_repo.py   # CampaignRecipient batching, tracking & SQL aggregation
-│   │   ├── tracking_repo.py    # TrackingEvent and WebhookEvent queries (V5)
-│   │   ├── import_job_repo.py  # ImportJob queries (V4)
-│   │   └── import_error_repo.py# ImportError queries (V4)
 │   ├── schemas/                # Pydantic validation models & DTOs
-│   │   ├── common.py           # Pagination schemas (PaginatedResponse, PaginationParams)
-│   │   ├── user.py             # User DTOs (Register, Login, Token, Response)
-│   │   ├── contact_list.py     # ContactList DTOs (Create, Update, Response)
-│   │   ├── subscriber.py       # Subscriber DTOs (Create, Update, Response, Status Enum)
-│   │   ├── template.py         # EmailTemplate DTOs (Create, Update, Response)
-│   │   ├── campaign.py         # EmailCampaign DTOs (Create, Update, Response, SendResponse, Status Enum)
-│   │   ├── recipient.py        # CampaignRecipient DTOs (Response, Status Enum)
-│   │   ├── import_job.py       # ImportJob & ImportError DTOs (V4)
-│   │   ├── tracking.py         # TrackingEvent, WebhookEvent & CampaignStats DTOs (V5)
-│   │   └── health.py           # Health check response schemas
 │   ├── services/               # Business logic layer
-│   │   ├── auth_service.py     # Authentication & registration
-│   │   ├── contact_list_service.py # ContactList business logic
-│   │   ├── subscriber_service.py   # Subscriber business logic
-│   │   ├── template_service.py # EmailTemplate business logic
-│   │   ├── campaign_service.py # EmailCampaign business logic & state validation
-│   │   ├── campaign_execution_service.py # Worker batch campaign execution with tracking pixel injection (V3+V5)
-│   │   ├── tracking_service.py # Email open tracking service (V5)
-│   │   ├── webhook_service.py  # Webhook signature verification and ingestion (V5)
-│   │   ├── webhook_execution_service.py # Asynchronous webhook bounce/delivery processing (V5)
-│   │   ├── import_service.py   # Import job dispatch & ownership validation (V4)
-│   │   └── import_execution_service.py # CSV streaming & batch ingestion engine (V4)
-│   ├── tasks/                  # Celery background tasks
-│   │   ├── celery_app.py       # Celery application configuration
-│   │   ├── campaign_tasks.py   # execute_campaign_task definition & backoff retry (V3)
-│   │   ├── import_tasks.py     # process_subscriber_import definition & backoff retry (V4)
-│   │   ├── webhook_tasks.py    # process_webhook_event definition & backoff retry (V5)
-│   │   └── __init__.py         # Task exports
-│   └── main.py                 # FastAPI application, lifespan, CORS, /track route, and health check
-├── tests/                      # Pytest async test suite (108 passing tests)
-│   ├── conftest.py             # Fixtures, test database lifecycle, test client
-│   ├── test_auth.py            # Registration, login, password security tests
-│   ├── test_users.py           # Profile & token authorization tests
-│   ├── test_contact_lists.py   # Contact list CRUD & cross-user isolation tests
-│   ├── test_subscribers.py     # Subscriber CRUD, per-list uniqueness & filter tests
-│   ├── test_templates.py       # Template CRUD, search, pagination, validation tests
-│   ├── test_campaigns.py       # Campaign CRUD, ownership, DRAFT rules, immutability tests
-│   ├── test_campaign_ready.py  # Campaign DRAFT -> READY validation state tests
-│   ├── test_campaign_send.py   # Send endpoint, 202 status, duplicate send protection (V3)
-│   ├── test_campaign_execution.py # Worker execution scenarios, crash recovery, snapshot tests (V3)
-│   ├── test_csv_import_api.py  # CSV upload endpoint, 202 status, job status & error querying (V4)
-│   ├── test_csv_import_execution.py # Streaming CSV parser, edge-case headers, duplicate handling (V4)
-│   ├── test_tracking_open.py   # Open tracking pixel, 1x1 transparent GIF, idempotency tests (V5)
-│   ├── test_webhooks.py        # Webhook signature verification, deduplication, bounce handling (V5)
-│   ├── test_campaign_stats.py  # SQL-aggregated stats, open rate, bounce rate, zero safety (V5)
-│   ├── test_referential_integrity.py # Template & ContactList deletion protection tests
-│   ├── test_database_constraints.py # Cascade deletion & FK integrity tests
-│   └── test_health.py          # System health check tests
-├── .env.example                # Example environment variables
-├── alembic.ini                 # Alembic configuration
-├── docker-compose.yml          # Multi-container orchestration (API, Worker, PostgreSQL, Redis)
-├── Dockerfile                  # Production container definition
+│   ├── tasks/                  # Celery background tasks (campaigns, imports, webhooks)
+│   └── main.py                 # FastAPI application root & tracking pixel route
+├── frontend/                   # React + TypeScript + Vite SPA
+│   ├── src/
+│   │   ├── api/                # Centralized Axios client & services
+│   │   ├── components/         # Layout (Sidebar, Header) & Common (Button, Input, Select, Modal, Badge, SafeHtmlPreview)
+│   │   ├── context/            # AuthContext (token storage, login/logout, user state)
+│   │   ├── pages/              # Dashboard, Contacts, Templates, Campaigns, Analytics, Settings
+│   │   ├── types/              # TypeScript definitions matching backend
+│   │   └── test/               # Vitest unit test suites
+│   ├── Dockerfile              # Multi-stage production Nginx container
+│   ├── package.json
+│   ├── tailwind.config.js
+│   └── vite.config.ts
+├── tests/                      # Pytest backend async test suite (108 tests)
+├── docker-compose.yml          # Full-stack orchestration (API, Worker, Frontend, PostgreSQL, Redis)
 ├── memory.md                   # Engineering memory & version status tracker
-├── pyproject.toml              # Build & test configuration
-├── README.md                   # Developer guide & API reference
-└── requirements.txt            # Minimal async application dependencies
+└── README.md                   # System documentation
 ```
 
 ---
 
-## 🚀 Environment Setup & Installation
+## 🚀 Getting Started
 
-### 1. Prerequisites
-- Python 3.10+
-- PostgreSQL 16 (or Docker)
-- Redis 7 (or Docker)
-
-### 2. Environment Configuration
-Copy the example environment configuration:
+### 1. Run Complete Stack with Docker Compose
 ```bash
-cp .env.example .env
+docker compose up --build -d
 ```
+Services will be live at:
+- **Frontend Dashboard**: [http://localhost:3000](http://localhost:3000)
+- **Backend API**: [http://localhost:8000](http://localhost:8000)
+- **API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-### 3. Local Virtual Environment Setup
+---
+
+### 2. Local Development Setup
+
+#### Backend Setup:
 ```bash
-# Windows
+# Setup virtual environment
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
-```
 
-### 4. Database Migrations
-Apply database migrations using Alembic:
-```bash
-# Apply all migrations
+# Run migrations
 alembic upgrade head
 
-# Rollback last migration (if needed)
-alembic downgrade -1
-```
-
-### 5. Running the Application Locally
-```bash
-# Terminal 1: Start API server
+# Start API
 uvicorn app.main:app --reload --port 8000
 
-# Terminal 2: Start Celery worker
+# Start Celery Worker
 celery -A app.tasks.celery_app.celery_app worker --loglevel=info
 ```
-Interactive API documentation will be available at:
-- Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
-- ReDoc: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
----
-
-## 🐳 Docker Setup
-
-To run the complete production-like stack using Docker Compose:
-
+#### Frontend Setup:
 ```bash
-# Start all containers in background (API, Worker, PostgreSQL, Redis)
-docker compose up --build -d
-
-# View container status
-docker compose ps
-
-# View real-time worker logs
-docker compose logs -f worker
+cd frontend
+npm install
+npm run dev
 ```
-
-The stack includes:
-- `api` — FastAPI application on port `8000`
-- `worker` — Celery worker executing campaign, import, and webhook tasks
-- `postgres` — PostgreSQL 16 database with health check
-- `redis` — Redis 7 cache & Celery broker with health check
+Accessible at [http://localhost:3000](http://localhost:3000).
 
 ---
 
 ## 🧪 Testing
 
-The repository features **108 comprehensive integration and unit tests** covering authentication, authorization, ownership isolation, pagination, filters, state transitions, async batch campaign execution, streaming CSV import ingestion, open tracking pixels, webhook verification, bounce handling, campaign stats calculation, and database constraints.
-
-Run the complete test suite:
+### Backend Test Suite (108 Tests):
 ```bash
 pytest -v
+```
+
+### Frontend Test Suite (9 Tests):
+```bash
+cd frontend
+npm test
+```
+
+### Frontend Typecheck & Production Build:
+```bash
+cd frontend
+npm run typecheck
+npm run build
 ```
 
 ---
@@ -321,16 +231,9 @@ pytest -v
 - [x] **V3** — Celery + Redis Task Execution & CampaignRecipient (Asynchronous execution, snapshot records, batching, idempotency, mock email provider, retries).
 - [x] **V4** — Bulk CSV Data Management (Asynchronous CSV ingestion, streaming parser, batch inserts, duplicate handling, import error logs).
 - [x] **V5** — Tracking & Webhooks (Open tracking pixels, provider webhook signature verification, async bounce handling, recipient history, campaign stats).
+- [x] **Frontend V1** — Complete React + TypeScript + Vite Campaign Manager Dashboard UI.
 - [ ] **V6** — Campaign Scheduling
 - [ ] **V7** — Unsubscribe + Compliance
 - [ ] **V8** — Template Variables
 - [ ] **V9** — Click Tracking
 - [ ] **V10** — Analytics Dashboard Backend
-- [ ] **V11** — High-Scale Campaign Engine
-- [ ] **V12** — Rate Limiting
-- [ ] **V13** — Multi-Provider Email Routing
-- [ ] **V14** — Sender Domains
-- [ ] **V15** — Multi-Tenancy + Billing
-- [ ] **V16** — Audit Logging
-- [ ] **V17** — Observability
-- [ ] **V18** — Production Deployment
