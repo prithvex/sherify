@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +30,24 @@ class SubscriberRepository:
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_existing_emails_set(
+        self,
+        db: AsyncSession,
+        contact_list_id: UUID,
+        emails: List[str],
+    ) -> Set[str]:
+        """
+        Return the subset of given emails that already exist in the contact list.
+        """
+        if not emails:
+            return set()
+        stmt = select(Subscriber.email).where(
+            Subscriber.contact_list_id == contact_list_id,
+            Subscriber.email.in_(emails),
+        )
+        result = await db.execute(stmt)
+        return set(result.scalars().all())
 
     async def list_by_contact_list(
         self,
@@ -66,6 +84,58 @@ class SubscriberRepository:
         items = list(result.scalars().all())
 
         return items, total
+
+    async def get_active_subscribers_batch(
+        self,
+        db: AsyncSession,
+        contact_list_id: UUID,
+        offset: int = 0,
+        limit: int = 500,
+    ) -> List[Subscriber]:
+        """
+        Fetch a batch of active subscribers for large-audience snapshot generation.
+        """
+        stmt = (
+            select(Subscriber)
+            .where(
+                Subscriber.contact_list_id == contact_list_id,
+                Subscriber.status == "active",
+            )
+            .order_by(Subscriber.id.asc())
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_active_subscribers(
+        self,
+        db: AsyncSession,
+        contact_list_id: UUID,
+    ) -> int:
+        """
+        Count total active subscribers in a contact list.
+        """
+        stmt = (
+            select(func.count(Subscriber.id))
+            .where(
+                Subscriber.contact_list_id == contact_list_id,
+                Subscriber.status == "active",
+            )
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
+    async def bulk_create(
+        self,
+        db: AsyncSession,
+        subscribers: List[Subscriber],
+    ) -> None:
+        """
+        Add a batch of Subscriber instances to session.
+        """
+        db.add_all(subscribers)
+        await db.flush()
 
     async def create(self, db: AsyncSession, subscriber: Subscriber) -> Subscriber:
         db.add(subscriber)

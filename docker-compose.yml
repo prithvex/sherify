@@ -12,9 +12,38 @@ services:
       - DEBUG=True
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/sherify
       - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CAMPAIGN_BATCH_SIZE=100
+      - EMAIL_PROVIDER=mock
       - JWT_SECRET_KEY=dev-secret-key-change-in-production-use-strong-random
       - JWT_ALGORITHM=HS256
       - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sherify_worker
+    command: celery -A app.tasks.celery_app.celery_app worker --loglevel=info
+    environment:
+      - APP_NAME=Sherify Campaign Manager
+      - APP_ENV=development
+      - DEBUG=True
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/sherify
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CAMPAIGN_BATCH_SIZE=100
+      - EMAIL_PROVIDER=mock
     depends_on:
       postgres:
         condition: service_healthy

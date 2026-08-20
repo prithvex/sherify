@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.v1.api import api_v1_router
+from app.api.v1.endpoints.tracking import router as tracking_router
 from app.core.config import settings
 from app.schemas.health import HealthResponse
 
@@ -66,6 +67,9 @@ async def root_health_check(db: AsyncSession = Depends(get_db)):
 
     return JSONResponse(status_code=http_status, content=content)
 
+
+# Mount public tracking pixel route at /track
+app.include_router(tracking_router, prefix="/track", tags=["Tracking"])
 
 # Include API v1 router
 app.include_router(api_v1_router, prefix="/api/v1")

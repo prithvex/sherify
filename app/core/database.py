@@ -1,13 +1,14 @@
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from app.core.config import settings
 
-# Canonical Async Engine for SQLAlchemy 2.x
+# Canonical Async Engine for SQLAlchemy 2.x using NullPool for event loop safety across worker tasks
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
     future=True,
-    pool_pre_ping=True,
+    poolclass=NullPool,
 )
 
 # Canonical Async Sessionmaker

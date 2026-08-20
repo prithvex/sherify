@@ -1,5 +1,5 @@
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from app.models.user import User
     from app.models.template import EmailTemplate
     from app.models.contact_list import ContactList
+    from app.models.recipient import CampaignRecipient
 
 
 class EmailCampaign(Base, UUIDMixin, TimestampMixin):
@@ -60,4 +61,9 @@ class EmailCampaign(Base, UUIDMixin, TimestampMixin):
     )
     contact_list: Mapped["ContactList"] = relationship(
         "ContactList",
+    )
+    recipients: Mapped[List["CampaignRecipient"]] = relationship(
+        "CampaignRecipient",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
     )

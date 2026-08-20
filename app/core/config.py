@@ -15,13 +15,30 @@ class Settings(BaseSettings):
     APP_NAME: str = "Sherify Campaign Manager"
     APP_ENV: str = "development"
     DEBUG: bool = True
+    PUBLIC_API_BASE_URL: str = "http://localhost:8000"
 
     # Database Configuration (Async PostgreSQL with asyncpg)
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/sherify"
     TEST_DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/sherify_test"
 
-    # Redis Configuration (Prepared for V3 queue)
+    # Redis Configuration
     REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Celery Configuration
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+    CAMPAIGN_BATCH_SIZE: int = 100
+
+    # Bulk CSV Import Configuration
+    MAX_IMPORT_FILE_SIZE_MB: int = 15
+    IMPORT_BATCH_SIZE: int = 500
+    STORAGE_LOCAL_DIR: str = "uploads/imports"
+
+    # Email Provider Configuration ("mock", "ses", "sendgrid", "resend", "mailgun")
+    EMAIL_PROVIDER: str = "mock"
+
+    # Webhook Configuration
+    WEBHOOK_SIGNING_SECRET: str = "dev-webhook-signing-secret"
 
     # Security & JWT Foundation
     JWT_SECRET_KEY: str = "dev-insecure-secret-key-replace-in-production"

@@ -1,13 +1,15 @@
 from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_active_user, get_db
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.contact_list import ContactListCreate, ContactListResponse, ContactListUpdate
+from app.schemas.import_job import ImportJobCreateResponse
 from app.schemas.subscriber import SubscriberCreate, SubscriberResponse, SubscriberStatus, SubscriberUpdate
 from app.services.contact_list_service import contact_list_service
+from app.services.import_service import import_service
 from app.services.subscriber_service import subscriber_service
 
 router = APIRouter()
@@ -141,6 +143,29 @@ async def create_subscriber(
         list_id=list_id,
         owner_id=current_user.id,
         sub_in=sub_in,
+    )
+
+
+@router.post(
+    "/{list_id}/subscribers/import",
+    response_model=ImportJobCreateResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Bulk import subscribers via CSV file",
+)
+async def import_subscribers_csv(
+    list_id: UUID,
+    file: UploadFile = File(..., description="CSV file containing subscribers"),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Upload and queue a CSV file for asynchronous batch subscriber ingestion.
+    """
+    return await import_service.create_import_job(
+        db=db,
+        owner_id=current_user.id,
+        contact_list_id=list_id,
+        file=file,
     )
 
 

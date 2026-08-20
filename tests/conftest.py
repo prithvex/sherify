@@ -1,4 +1,4 @@
-from typing import AsyncGenerator, Dict
+from typing import AsyncGenerator, Dict, List
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -8,7 +8,20 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token, get_password_hash
 from app.main import app
-from app.models import Base, ContactList, EmailCampaign, EmailTemplate, Subscriber, User
+from app.models import (
+    Base,
+    CampaignRecipient,
+    ContactList,
+    EmailCampaign,
+    EmailTemplate,
+    ImportError,
+    ImportJob,
+    Subscriber,
+    TrackingEvent,
+    User,
+    WebhookEvent,
+)
+from app.tasks.celery_app import celery_app
 
 
 @pytest.fixture(scope="session")
@@ -19,7 +32,7 @@ def anyio_backend():
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_schema():
     """
-    Ensure schema exists in test database for test session.
+    Ensure up-to-date schema exists in test database for test session.
     """
     engine = create_async_engine(
         settings.TEST_DATABASE_URL or settings.DATABASE_URL,
@@ -30,6 +43,7 @@ def setup_test_schema():
     import asyncio
     async def init_models():
         async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
         await engine.dispose()
     
@@ -57,7 +71,9 @@ async def clean_database_tables(test_engine):
     Clean all table data before each test to ensure test isolation.
     """
     async with test_engine.begin() as conn:
-        await conn.execute(text("TRUNCATE TABLE email_campaigns, email_templates, subscribers, contact_lists, users RESTART IDENTITY CASCADE;"))
+        await conn.execute(
+            text("TRUNCATE TABLE tracking_events, webhook_events, import_errors, import_jobs, campaign_recipients, email_campaigns, email_templates, subscribers, contact_lists, users RESTART IDENTITY CASCADE;")
+        )
     yield
 
 
@@ -104,6 +120,18 @@ async def async_client(test_engine) -> AsyncGenerator[AsyncClient, None]:
             yield ac
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture(autouse=True)
+def configure_celery():
+    """
+    Configure Celery for synchronous/eager test execution when required.
+    """
+    celery_app.conf.update(
+        task_always_eager=False,
+        task_eager_propagates=True,
+    )
+    yield
 
 
 @pytest.fixture
@@ -249,3 +277,23 @@ async def campaign_a(
     await db_session.commit()
     await db_session.refresh(campaign)
     return campaign
+
+
+@pytest.fixture
+async def subscribers_a(
+    db_session: AsyncSession,
+    contact_list_a: ContactList,
+) -> List[Subscriber]:
+    """Create 5 active subscribers in contact_list_a."""
+    subs = []
+    for i in range(5):
+        s = Subscriber(
+            contact_list_id=contact_list_a.id,
+            email=f"subscriber{i}@example.com",
+            first_name=f"Sub{i}",
+            status="active",
+        )
+        db_session.add(s)
+        subs.append(s)
+    await db_session.commit()
+    return subs

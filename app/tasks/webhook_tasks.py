@@ -1,0 +1,49 @@
+import asyncio
+import logging
+from uuid import UUID
+from celery.utils.log import get_task_logger
+from app.tasks.celery_app import celery_app
+
+logger = get_task_logger(__name__)
+
+
+class TransientWebhookError(Exception):
+    """Raised when a transient database failure should trigger Celery backoff retry."""
+    pass
+
+
+@celery_app.task(
+    bind=True,
+    name="app.tasks.webhook_tasks.process_webhook_event",
+    max_retries=3,
+    default_retry_delay=10,
+)
+def process_webhook_event(self, webhook_event_id: str):
+    """
+    Celery task that processes incoming provider webhook events (e.g. BOUNCE).
+    """
+    logger.info(f"[Task {self.request.id}] Starting webhook event processing for ID: {webhook_event_id}")
+    from app.services.webhook_execution_service import webhook_execution_service
+
+    try:
+        asyncio.run(
+            webhook_execution_service.execute_webhook(
+                webhook_event_id=UUID(webhook_event_id),
+                task_id=self.request.id,
+            )
+        )
+        logger.info(f"[Task {self.request.id}] Finished webhook event processing for ID: {webhook_event_id}")
+    except TransientWebhookError as exc:
+        retry_count = self.request.retries
+        countdown = min(2 ** retry_count * 10, 60)
+        logger.warning(
+            f"[Task {self.request.id}] Transient error for Webhook Event {webhook_event_id}: {exc}. "
+            f"Retrying in {countdown}s (Attempt {retry_count + 1}/3)..."
+        )
+        raise self.retry(exc=exc, countdown=countdown)
+    except Exception as exc:
+        logger.error(
+            f"[Task {self.request.id}] Unhandled error for Webhook Event {webhook_event_id}: {exc}",
+            exc_info=True,
+        )
+        raise exc

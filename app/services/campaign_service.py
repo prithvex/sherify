@@ -1,13 +1,22 @@
+import logging
+import secrets
 from typing import Optional
 from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.campaign import EmailCampaign
+from app.models.recipient import CampaignRecipient
 from app.repositories.campaign_repo import campaign_repository
 from app.repositories.contact_list_repo import contact_list_repository
+from app.repositories.recipient_repo import recipient_repository
+from app.repositories.subscriber_repo import subscriber_repository
 from app.repositories.template_repo import template_repository
 from app.schemas.campaign import CampaignCreate, CampaignResponse, CampaignStatus, CampaignUpdate
 from app.schemas.common import PaginatedResponse
+from app.schemas.recipient import RecipientStatus
+from app.schemas.tracking import CampaignStatsResponse
+
+logger = logging.getLogger(__name__)
 
 
 class CampaignService:
@@ -110,7 +119,7 @@ class CampaignService:
     ) -> EmailCampaign:
         campaign = await self.get_by_id(db, campaign_id=campaign_id, owner_id=owner_id)
 
-        # READY campaigns are immutable
+        # READY and other advanced statuses are immutable
         if campaign.status != CampaignStatus.DRAFT.value:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -192,6 +201,112 @@ class CampaignService:
         # Transition state
         campaign.status = CampaignStatus.READY.value
         return await campaign_repository.update(db, campaign)
+
+    async def queue_campaign(
+        self,
+        db: AsyncSession,
+        campaign_id: UUID,
+        owner_id: UUID,
+    ) -> EmailCampaign:
+        """
+        Snapshot recipients, transition campaign READY -> QUEUED, and enqueue background Celery execution task.
+        """
+        campaign = await self.get_by_id(db, campaign_id=campaign_id, owner_id=owner_id)
+
+        # 1. State Validation
+        if campaign.status == CampaignStatus.DRAFT.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Campaign must be in READY status before sending. Please validate and mark ready first.",
+            )
+
+        if campaign.status != CampaignStatus.READY.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Campaign cannot be sent in '{campaign.status.upper()}' status.",
+            )
+
+        # 2. Validate Foreign Resources
+        await self._validate_foreign_ownership(
+            db,
+            owner_id=owner_id,
+            template_id=campaign.template_id,
+            contact_list_id=campaign.contact_list_id,
+        )
+
+        # 3. Validate Eligible Subscribers
+        active_count = await subscriber_repository.count_active_subscribers(
+            db,
+            contact_list_id=campaign.contact_list_id,
+        )
+        if active_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot send campaign: Referenced contact list has no active subscribers.",
+            )
+
+        # 4. Snapshot Recipients in Chunks with Cryptographically Secure Tracking Tokens
+        offset = 0
+        batch_limit = 500
+        while offset < active_count:
+            subscribers_batch = await subscriber_repository.get_active_subscribers_batch(
+                db,
+                contact_list_id=campaign.contact_list_id,
+                offset=offset,
+                limit=batch_limit,
+            )
+            if not subscribers_batch:
+                break
+
+            recipient_records = [
+                CampaignRecipient(
+                    campaign_id=campaign.id,
+                    subscriber_id=sub.id,
+                    email=sub.email,
+                    tracking_token=secrets.token_urlsafe(32),
+                    status=RecipientStatus.PENDING.value,
+                    attempts=0,
+                )
+                for sub in subscribers_batch
+            ]
+            await recipient_repository.bulk_create(db, recipient_records)
+            offset += len(subscribers_batch)
+
+        # 5. Set Status = QUEUED and Commit DB State
+        campaign.status = CampaignStatus.QUEUED.value
+        await db.commit()
+        await db.refresh(campaign)
+
+        # 6. Enqueue Celery Task
+        try:
+            from app.tasks.campaign_tasks import execute_campaign_task
+            execute_campaign_task.delay(str(campaign.id))
+        except Exception as exc:
+            logger.error(f"Failed to enqueue Celery task for Campaign {campaign.id}: {exc}")
+            # Revert to READY and rollback recipients so user can safely retry
+            campaign.status = CampaignStatus.READY.value
+            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Campaign queue broker is temporarily unavailable. Please try again.",
+            )
+
+        return campaign
+
+    async def get_campaign_stats(
+        self,
+        db: AsyncSession,
+        campaign_id: UUID,
+        owner_id: UUID,
+    ) -> CampaignStatsResponse:
+        """
+        Retrieve database-aggregated stats for a specific campaign.
+        """
+        # Validate campaign exists and belongs to owner
+        await self.get_by_id(db, campaign_id=campaign_id, owner_id=owner_id)
+
+        stats_dict = await recipient_repository.get_campaign_stats(db, campaign_id=campaign_id)
+        return CampaignStatsResponse(**stats_dict)
 
 
 campaign_service = CampaignService()

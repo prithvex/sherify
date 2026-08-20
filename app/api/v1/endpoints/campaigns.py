@@ -4,8 +4,15 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_active_user, get_db
 from app.models.user import User
-from app.schemas.campaign import CampaignCreate, CampaignResponse, CampaignStatus, CampaignUpdate
+from app.schemas.campaign import (
+    CampaignCreate,
+    CampaignResponse,
+    CampaignSendResponse,
+    CampaignStatus,
+    CampaignUpdate,
+)
 from app.schemas.common import PaginatedResponse
+from app.schemas.tracking import CampaignStatsResponse
 from app.services.campaign_service import campaign_service
 
 router = APIRouter()
@@ -74,6 +81,27 @@ async def get_campaign(
     return await campaign_service.get_by_id(db, campaign_id=campaign_id, owner_id=current_user.id)
 
 
+@router.get(
+    "/{campaign_id}/stats",
+    response_model=CampaignStatsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get delivery and engagement statistics for a campaign",
+)
+async def get_campaign_stats(
+    campaign_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> CampaignStatsResponse:
+    """
+    Retrieve database-aggregated delivery and engagement stats (sent, failed, bounced, opened, rates).
+    """
+    return await campaign_service.get_campaign_stats(
+        db=db,
+        campaign_id=campaign_id,
+        owner_id=current_user.id,
+    )
+
+
 @router.patch(
     "/{campaign_id}",
     response_model=CampaignResponse,
@@ -88,7 +116,7 @@ async def update_campaign(
 ):
     """
     Update details of a campaign in DRAFT status.
-    Modifications are rejected if the campaign is already in READY status.
+    Modifications are rejected if the campaign is already in READY or later status.
     """
     return await campaign_service.update(
         db,
@@ -134,4 +162,31 @@ async def mark_campaign_ready(
         db,
         campaign_id=campaign_id,
         owner_id=current_user.id,
+    )
+
+
+@router.post(
+    "/{campaign_id}/send",
+    response_model=CampaignSendResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue campaign for background asynchronous execution",
+)
+async def send_campaign(
+    campaign_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Validate READY status, create recipient execution snapshots, set status to QUEUED,
+    and enqueue Celery background worker execution. Returns HTTP 202 Accepted immediately.
+    """
+    campaign = await campaign_service.queue_campaign(
+        db,
+        campaign_id=campaign_id,
+        owner_id=current_user.id,
+    )
+    return CampaignSendResponse(
+        campaign_id=campaign.id,
+        status=campaign.status,
+        message="Campaign queued successfully",
     )

@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field
 class CampaignStatus(str, Enum):
     DRAFT = "draft"
     READY = "ready"
-    # Reserved future states
     QUEUED = "queued"
     SENDING = "sending"
     COMPLETED = "completed"
@@ -42,3 +41,9 @@ class CampaignResponse(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+
+
+class CampaignSendResponse(BaseModel):
+    campaign_id: UUID
+    status: str
+    message: str
