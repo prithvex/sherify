@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional, Tuple
 from uuid import UUID
 from sqlalchemy import func, select
@@ -52,6 +53,30 @@ class CampaignRepository:
         items = list(result.scalars().all())
 
         return items, total
+
+    async def get_due_scheduled_campaigns(
+        self,
+        db: AsyncSession,
+        now_utc: datetime,
+        limit: int = 50,
+    ) -> List[EmailCampaign]:
+        """
+        Query campaigns in SCHEDULED status whose scheduled_at <= now_utc.
+        Uses row-level locking (FOR UPDATE SKIP LOCKED) to prevent race conditions
+        between multiple scheduler / Celery Beat instances.
+        """
+        stmt = (
+            select(EmailCampaign)
+            .where(
+                EmailCampaign.status == "scheduled",
+                EmailCampaign.scheduled_at <= now_utc,
+            )
+            .order_by(EmailCampaign.scheduled_at.asc())
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
     async def create(self, db: AsyncSession, campaign: EmailCampaign) -> EmailCampaign:
         db.add(campaign)

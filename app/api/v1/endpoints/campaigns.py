@@ -7,6 +7,7 @@ from app.models.user import User
 from app.schemas.campaign import (
     CampaignCreate,
     CampaignResponse,
+    CampaignScheduleRequest,
     CampaignSendResponse,
     CampaignStatus,
     CampaignUpdate,
@@ -189,4 +190,48 @@ async def send_campaign(
         campaign_id=campaign.id,
         status=campaign.status,
         message="Campaign queued successfully",
+    )
+
+
+@router.post(
+    "/{campaign_id}/schedule",
+    response_model=CampaignResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Schedule a READY campaign for future asynchronous dispatch",
+)
+async def schedule_campaign(
+    campaign_id: UUID,
+    schedule_in: CampaignScheduleRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Schedule a campaign in READY status to be dispatched at a specified future UTC time.
+    """
+    return await campaign_service.schedule_campaign(
+        db,
+        campaign_id=campaign_id,
+        owner_id=current_user.id,
+        schedule_in=schedule_in,
+    )
+
+
+@router.post(
+    "/{campaign_id}/cancel",
+    response_model=CampaignResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Cancel a scheduled, queued, or ready campaign",
+)
+async def cancel_campaign(
+    campaign_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cancel an uncompleted campaign (SCHEDULED, QUEUED, or READY).
+    """
+    return await campaign_service.cancel_campaign(
+        db,
+        campaign_id=campaign_id,
+        owner_id=current_user.id,
     )

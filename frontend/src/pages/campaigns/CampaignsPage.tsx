@@ -1,35 +1,54 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Send, Plus, Search, Trash2, ArrowRight, BarChart3 } from 'lucide-react';
+import {
+  Send,
+  Plus,
+  Search,
+  Trash2,
+  ArrowRight,
+  BarChart3,
+  Calendar,
+} from 'lucide-react';
 import { campaignsApi } from '../../api/campaigns';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
-import { Select } from '../../components/common/Select';
 import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { Pagination } from '../../components/common/Pagination';
 import { Skeleton } from '../../components/common/Skeleton';
 import { EmptyState } from '../../components/common/EmptyState';
 import { Alert } from '../../components/common/Alert';
-import { ApiError, EmailCampaign } from '../../types';
+import { ApiError, CampaignStatus, EmailCampaign } from '../../types';
+
+const STATUS_TABS: { label: string; value: CampaignStatus | '' }[] = [
+  { label: 'All', value: '' },
+  { label: 'Draft', value: 'draft' },
+  { label: 'Ready', value: 'ready' },
+  { label: 'Scheduled', value: 'scheduled' },
+  { label: 'Queued', value: 'queued' },
+  { label: 'Sending', value: 'sending' },
+  { label: 'Completed', value: 'completed' },
+  { label: 'Cancelled', value: 'cancelled' },
+  { label: 'Failed', value: 'failed' },
+];
 
 export const CampaignsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState<CampaignStatus | ''>('');
   const [deleteTarget, setDeleteTarget] = useState<EmailCampaign | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['campaigns', { page, search, status: statusFilter }],
+    queryKey: ['campaigns', { page, search, status: selectedStatus }],
     queryFn: () =>
       campaignsApi.list({
         page,
         page_size: 10,
         search: search.trim() || undefined,
-        status: statusFilter || undefined,
+        status: selectedStatus || undefined,
       }),
   });
 
@@ -58,7 +77,7 @@ export const CampaignsPage: React.FC = () => {
         <div>
           <h2 className="text-xl font-bold tracking-tight text-white sm:text-2xl">Campaigns</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Create, validate, dispatch, and track your mass email broadcasts
+            Design, schedule, and dispatch bulk email campaigns to targeted contact lists
           </p>
         </div>
         <Link to="/campaigns/new">
@@ -68,13 +87,13 @@ export const CampaignsPage: React.FC = () => {
         </Link>
       </div>
 
-      {deleteError && <Alert type="error" message={deleteError} title="Delete Failed" />}
+      {deleteError && <Alert type="error" message={deleteError} title="Action Failed" />}
 
-      {/* Search & Filter Bar */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="w-full sm:max-w-sm">
+      {/* Search & Status Filters */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="w-full max-w-sm">
           <Input
-            placeholder="Search campaigns..."
+            placeholder="Search campaigns by name or subject..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -83,23 +102,25 @@ export const CampaignsPage: React.FC = () => {
             leftIcon={<Search className="w-4 h-4" />}
           />
         </div>
-        <div className="w-full sm:w-48">
-          <Select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
-            }}
-            options={[
-              { value: '', label: 'All Statuses' },
-              { value: 'draft', label: 'Draft' },
-              { value: 'ready', label: 'Ready' },
-              { value: 'queued', label: 'Queued' },
-              { value: 'sending', label: 'Sending' },
-              { value: 'completed', label: 'Completed' },
-              { value: 'failed', label: 'Failed' },
-            ]}
-          />
+
+        {/* Status Filter Chips */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+          {STATUS_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => {
+                setSelectedStatus(tab.value);
+                setPage(1);
+              }}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors whitespace-nowrap ${
+                selectedStatus === tab.value
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -116,9 +137,9 @@ export const CampaignsPage: React.FC = () => {
             icon={<Send className="w-6 h-6" />}
             title="No campaigns found"
             description={
-              search || statusFilter
-                ? 'No campaigns matching your filter criteria.'
-                : "You haven't created any campaigns yet. Start by defining a new campaign."
+              search || selectedStatus
+                ? 'No campaigns match your current filters.'
+                : "You haven't created any campaigns yet. Build your first campaign to begin dispatching bulk emails."
             }
             actionLabel="Create Campaign"
             onAction={() => (window.location.href = '/campaigns/new')}
@@ -129,23 +150,38 @@ export const CampaignsPage: React.FC = () => {
               <thead>
                 <tr className="text-slate-400">
                   <th className="pb-3 font-semibold">Campaign Name</th>
-                  <th className="pb-3 font-semibold">Subject</th>
                   <th className="pb-3 font-semibold">Status</th>
-                  <th className="pb-3 font-semibold">Created</th>
+                  <th className="pb-3 font-semibold">Schedule / Timing</th>
+                  <th className="pb-3 font-semibold">Date Created</th>
                   <th className="pb-3 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                 {data?.items.map((camp) => (
                   <tr key={camp.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3.5 pr-4 font-semibold text-slate-200">
-                      <Link to={`/campaigns/${camp.id}`} className="hover:text-indigo-400">
-                        {camp.name}
-                      </Link>
+                    <td className="py-3.5 pr-4">
+                      <div className="space-y-0.5">
+                        <Link
+                          to={`/campaigns/${camp.id}`}
+                          className="font-semibold text-slate-200 hover:text-indigo-400 transition-colors"
+                        >
+                          {camp.name}
+                        </Link>
+                        <p className="text-slate-500 text-[11px] truncate max-w-xs">{camp.subject}</p>
+                      </div>
                     </td>
-                    <td className="py-3.5 pr-4 text-slate-400 max-w-xs truncate">{camp.subject}</td>
                     <td className="py-3.5 pr-4">
                       <Badge variant={camp.status}>{camp.status}</Badge>
+                    </td>
+                    <td className="py-3.5 pr-4 text-slate-400 whitespace-nowrap">
+                      {camp.status === 'scheduled' && camp.scheduled_at ? (
+                        <div className="flex items-center gap-1.5 text-cyan-400">
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span className="text-[11px]">{new Date(camp.scheduled_at).toLocaleDateString()}</span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-600 italic">Immediate</span>
+                      )}
                     </td>
                     <td className="py-3.5 text-slate-400 whitespace-nowrap">
                       {new Date(camp.created_at).toLocaleDateString()}
@@ -154,7 +190,7 @@ export const CampaignsPage: React.FC = () => {
                       <div className="flex items-center justify-end gap-2">
                         <Link to={`/campaigns/${camp.id}`}>
                           <Button variant="outline" size="sm" rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
-                            Manage
+                            Details
                           </Button>
                         </Link>
                         {(camp.status === 'completed' || camp.status === 'sending' || camp.status === 'queued') && (
@@ -164,18 +200,20 @@ export const CampaignsPage: React.FC = () => {
                             </Button>
                           </Link>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setDeleteError(null);
-                            setDeleteTarget(camp);
-                          }}
-                          className="text-red-400 hover:text-red-300 hover:bg-red-950/40"
-                          aria-label="Delete campaign"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        {camp.status === 'draft' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setDeleteError(null);
+                              setDeleteTarget(camp);
+                            }}
+                            className="text-red-400 hover:text-red-300 hover:bg-red-950/40"
+                            aria-label="Delete draft campaign"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -197,7 +235,7 @@ export const CampaignsPage: React.FC = () => {
         )}
       </div>
 
-      {/* Delete Modal */}
+      {/* Delete Confirmation Modal for Drafts */}
       <Modal
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
@@ -206,7 +244,7 @@ export const CampaignsPage: React.FC = () => {
       >
         <div className="space-y-4">
           <p className="text-xs text-slate-400">
-            This will permanently remove the campaign and any associated execution records.
+            This will permanently remove this draft campaign. This action cannot be undone.
           </p>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">

@@ -53,6 +53,30 @@ services:
       - .:/app
     restart: unless-stopped
 
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sherify_beat
+    command: celery -A app.tasks.celery_app.celery_app beat --loglevel=info
+    environment:
+      - APP_NAME=Sherify Campaign Manager
+      - APP_ENV=development
+      - DEBUG=True
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/sherify
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - EMAIL_PROVIDER=mock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./frontend

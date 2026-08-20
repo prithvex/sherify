@@ -3,10 +3,12 @@ import React from 'react';
 export type BadgeVariant =
   | 'draft'
   | 'ready'
+  | 'scheduled'
   | 'queued'
   | 'sending'
   | 'completed'
   | 'failed'
+  | 'cancelled'
   | 'bounced'
   | 'active'
   | 'unsubscribed'
@@ -32,6 +34,8 @@ export const Badge: React.FC<BadgeProps> = ({
         return 'bg-slate-800 text-slate-300 border-slate-700';
       case 'ready':
         return 'bg-blue-950/80 text-blue-300 border-blue-800/60';
+      case 'scheduled':
+        return 'bg-cyan-950/80 text-cyan-300 border-cyan-800/60';
       case 'queued':
         return 'bg-amber-950/80 text-amber-300 border-amber-800/60';
       case 'sending':
@@ -43,8 +47,9 @@ export const Badge: React.FC<BadgeProps> = ({
       case 'failed':
       case 'bounced':
         return 'bg-rose-950/80 text-rose-300 border-rose-800/60';
+      case 'cancelled':
       case 'unsubscribed':
-        return 'bg-slate-800 text-slate-400 border-slate-700';
+        return 'bg-slate-800/90 text-slate-400 border-slate-700/80';
       default:
         return 'bg-slate-800 text-slate-300 border-slate-700';
     }

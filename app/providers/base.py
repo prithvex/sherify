@@ -9,6 +9,9 @@ class EmailMessage:
     subject: str
     html_content: str
     text_content: Optional[str] = None
+    from_email: Optional[str] = None
+    from_name: Optional[str] = None
+    reply_to: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

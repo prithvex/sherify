@@ -1,20 +1,17 @@
 import { apiClient } from './client';
 import {
+  EmailCampaign,
+  CampaignCreate,
+  CampaignUpdate,
+  CampaignScheduleRequest,
   CampaignSendResponse,
   CampaignStats,
-  EmailCampaign,
-  EmailCampaignCreate,
-  EmailCampaignUpdate,
   PaginatedResponse,
   PaginationParams,
 } from '../types';
 
-export interface CampaignQueryParams extends PaginationParams {
-  status?: string;
-}
-
 export const campaignsApi = {
-  list: async (params?: CampaignQueryParams): Promise<PaginatedResponse<EmailCampaign>> => {
+  list: async (params: PaginationParams = {}): Promise<PaginatedResponse<EmailCampaign>> => {
     const response = await apiClient.get<PaginatedResponse<EmailCampaign>>('/api/v1/campaigns', {
       params,
     });
@@ -26,12 +23,12 @@ export const campaignsApi = {
     return response.data;
   },
 
-  create: async (data: EmailCampaignCreate): Promise<EmailCampaign> => {
+  create: async (data: CampaignCreate): Promise<EmailCampaign> => {
     const response = await apiClient.post<EmailCampaign>('/api/v1/campaigns', data);
     return response.data;
   },
 
-  update: async (id: string, data: EmailCampaignUpdate): Promise<EmailCampaign> => {
+  update: async (id: string, data: CampaignUpdate): Promise<EmailCampaign> => {
     const response = await apiClient.patch<EmailCampaign>(`/api/v1/campaigns/${id}`, data);
     return response.data;
   },
@@ -47,6 +44,16 @@ export const campaignsApi = {
 
   send: async (id: string): Promise<CampaignSendResponse> => {
     const response = await apiClient.post<CampaignSendResponse>(`/api/v1/campaigns/${id}/send`);
+    return response.data;
+  },
+
+  schedule: async (id: string, data: CampaignScheduleRequest): Promise<EmailCampaign> => {
+    const response = await apiClient.post<EmailCampaign>(`/api/v1/campaigns/${id}/schedule`, data);
+    return response.data;
+  },
+
+  cancel: async (id: string): Promise<EmailCampaign> => {
+    const response = await apiClient.post<EmailCampaign>(`/api/v1/campaigns/${id}/cancel`);
     return response.data;
   },
 

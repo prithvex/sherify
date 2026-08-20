@@ -2,11 +2,11 @@
 
 ## Project Status
 
-- **Current Version**: Frontend V1 — Complete Campaign Manager UI
-- **Completed Versions**: Initialization, V1 (Audience Management), V2 (Campaign Engine), V3 (Campaign Execution), V4 (Bulk Data Management), V5 (Tracking & Webhooks), Frontend V1 (Complete UI Dashboard)
-- **Current Development Phase**: Frontend V1 Complete
+- **Current Version**: V6 — Production Email Delivery & Campaign Scheduling
+- **Completed Versions**: Initialization, V1 (Audience Management), V2 (Campaign Engine), V3 (Campaign Execution), V4 (Bulk Data Management), V5 (Tracking & Webhooks), Frontend V1 (Complete UI Dashboard), V6 (Production Delivery & Scheduling)
+- **Current Development Phase**: V6 Complete
 - **Overall Health**: Healthy
-- **Frontend V1 Status**: Completed
+- **V6 Status**: Completed
 
 ### Completed Work
 
@@ -20,7 +20,6 @@
   - **Provider Webhooks**: Public `POST /api/v1/webhooks/email/{provider}` endpoint returning `HTTP 202 Accepted`, pluggable `BaseWebhookVerifier` and `BaseWebhookParser` abstractions with HMAC verification, normalized internal `NormalizedWebhookEvent` data structures, `WebhookEvent` model with unique constraint on `(provider, provider_event_id)` ensuring deduplication.
   - **Asynchronous Webhook Processing & Bounce Handling**: Celery task `process_webhook_event`, `WebhookExecutionService` resolving recipient by `provider_message_id`, updating delivery status to `bounced` (from `sent`), recording `CampaignRecipient.bounced_at` while preserving `sent_at`, and recording immutable `TrackingEvent(event_type="bounced")`.
   - **Campaign Statistics**: Database SQL-aggregated endpoint `GET /api/v1/campaigns/{campaign_id}/stats` calculating `total_recipients`, `sent_count`, `failed_count`, `bounced_count`, `opened_count`, `open_rate` (`opened / sent`), and `bounce_rate` (`bounced / sent`), with division-by-zero protection.
-  - **Migration & Test Suite**: Alembic migration `005_v5_tracking_and_webhooks`, 108 automated unit/integration tests passing (100%), and live Docker E2E verification.
 - **Frontend V1 (Complete Campaign Manager UI)**:
   - Built production-grade React 18 + TypeScript + Vite SPA.
   - State management & server caching using TanStack Query v5.
@@ -28,56 +27,41 @@
   - Complete page routes: `/login`, `/register`, `/dashboard`, `/contacts`, `/contacts/:id`, `/templates`, `/templates/new`, `/templates/:id/edit`, `/campaigns`, `/campaigns/new`, `/campaigns/:id`, `/campaigns/:id/analytics`, `/analytics`, `/settings`.
   - Sandboxed iframe HTML email preview (`SafeHtmlPreview`) for isolated, safe template design.
   - Real-time polling trackers for bulk CSV imports and asynchronous campaign delivery dispatches.
-  - Vitest + React Testing Library test suite (9 passing tests).
-  - Production build passing (`tsc && vite build`).
+- **V6 (Production Email Delivery & Campaign Scheduling)**:
+  - **Production SMTP Transport**: Implemented `SMTPProvider` using `aiosmtplib` with SSL/STARTTLS support, custom timeouts, formatted MIME multipart messages (HTML + plain text fallback), and fine-grained transient (4xx / network timeouts) vs permanent (5xx) error categorization.
+  - **Sender Identity & Overrides**: Extended `EmailCampaign` model and schemas with custom `from_name`, `from_email`, and `reply_to` fields, falling back to global system sender identity when not set.
+  - **Timezone-Aware Scheduling**: Added `scheduled_at` (UTC timestamp) and `timezone` to `EmailCampaign`. Added `POST /api/v1/campaigns/{campaign_id}/schedule` endpoint with future UTC date validation and IANA timezone verification (`zoneinfo`).
+  - **Campaign Cancellation**: Implemented `POST /api/v1/campaigns/{campaign_id}/cancel` allowing users to halt `SCHEDULED`, `QUEUED`, or `READY` campaigns safely.
+  - **Celery Beat Periodic Scheduler**: Configured Celery Beat periodic task `check_scheduled_campaigns_task` (runs every 30s) that queries due scheduled campaigns using PostgreSQL row locking (`SELECT ... FOR UPDATE SKIP LOCKED`), snapshots recipients, transitions state to `QUEUED`, and dispatches worker execution tasks.
+  - **Distributed Rate Limiting**: Built Redis token-bucket `DistributedRateLimiter` (`app/core/rate_limiter.py`) pacing email dispatches across concurrent Celery worker processes to conform to `EMAIL_RATE_LIMIT_PER_SECOND`.
+  - **Frontend Scheduling Integration**: Added "Schedule for Later" and "Cancel Scheduled Campaign" modals to `CampaignDetailPage`, added `scheduled` and `cancelled` badges and filters to `CampaignsPage`, and updated `CampaignAnalyticsPage` and `CampaignCreatePage`.
+  - **Database Migration**: Applied Alembic migration `006_v6_scheduling_and_delivery.py`.
+  - **Docker Compose**: Added `beat` container (`sherify_beat`) running `celery beat`.
+  - **Testing**: 123 backend tests (100% pass) + 11 frontend Vitest tests (100% pass) + frontend production build validated.
 
 ---
 
-## Frontend
-
-- **Technology**: React 18, TypeScript 5.4, Vite 5, Tailwind CSS, Lucide React.
-- **State Management & Data Fetching**: TanStack Query v5 for server state caching, pagination, background refetching, and cache invalidation.
-- **Routing**: React Router 6 with protected layout shell and unauthenticated redirect to `/login`.
-- **API Client**: Centralized Axios instance (`src/api/client.ts`) utilizing `VITE_API_BASE_URL` environment configuration, injecting `Authorization: Bearer <token>`, and parsing backend error details.
-- **Structure**:
-  - `src/api/`: Domain-specific API services matching backend routers.
-  - `src/components/common/`: Button, Input, Select, Modal, Badge, Pagination, Skeleton, EmptyState, Alert, SafeHtmlPreview.
-  - `src/components/layout/`: AppLayout, Sidebar, Header.
-  - `src/context/`: AuthContext.
-  - `src/pages/`: Auth, Dashboard, Contacts, Templates, Campaigns, Analytics, Settings.
-  - `src/types/`: Centralized TypeScript DTOs matching backend Pydantic models.
-  - `src/test/`: Vitest test suites.
-- **Testing**: 9 tests across 4 suites covering login, registration, contact list creation, subscriber management, template authoring, campaign state transitions, and SQL-aggregated analytics visualization.
-
----
-
-## Tracking
-
-- **Tracking Token**: Cryptographically secure 32-byte URL-safe string generated per `CampaignRecipient` (`secrets.token_urlsafe(32)`).
-- **Tracking Pixel**: 1x1 transparent GIF (43 bytes) returned via `GET /track/open/{tracking_token}` with `Cache-Control: no-cache, no-store, must-revalidate, max-age=0`. Injected into outgoing HTML emails before `</body>`.
-- **First-Open Behavior & `opened_at`**: Only the first open event populates `opened_at` and generates a `TrackingEvent(event_type="opened")`. Subsequent requests return the GIF without altering the first-open timestamp or duplicating events.
-
----
-
-## Webhooks
-
-- **Webhook Endpoint**: `POST /api/v1/webhooks/email/{provider}` (public, provider-authenticated).
-- **Verification**: `BaseWebhookVerifier` abstraction validating HMAC signatures and timestamps using configured secrets before accepting the payload.
-- **Normalized Events**: `BaseWebhookParser` transforms vendor-specific payloads into `NormalizedWebhookEvent` (`provider`, `provider_event_id`, `event_type`, `provider_message_id`, `occurred_at`, `recipient_email`).
-- **Idempotency**: Database unique constraint on `(provider, provider_event_id)` in `webhook_events` table ensures duplicate webhook posts return immediate 202 without reprocessing.
-- **Celery Processing**: Background worker task `process_webhook_event` processes raw payloads asynchronously, handling unknown event types and unresolved message IDs cleanly as `ignored`.
-- **Bounce Handling**: Updates `CampaignRecipient.status = "bounced"` (if previous status was `sent`), sets `CampaignRecipient.bounced_at`, preserves `sent_at`, and records `TrackingEvent(event_type="bounced")`.
-
----
-
-## Database
+## 🏛️ Database Architecture
 
 ### Domain Models
 1. **`User`** (`users` table): `id` (UUID PK), `email` (Unique, Indexed), `password_hash`, `is_active`, timestamps.
 2. **`ContactList`** (`contact_lists` table): `id` (UUID PK), `owner_id` (FK `users.id` ON DELETE CASCADE), `name`, `description`, timestamps.
 3. **`Subscriber`** (`subscribers` table): `id` (UUID PK), `contact_list_id` (FK `contact_lists.id` ON DELETE CASCADE), `email`, `first_name`, `last_name`, `status`, `metadata` (JSON), timestamps. Unique on `(contact_list_id, email)`.
 4. **`EmailTemplate`** (`email_templates` table): `id` (UUID PK), `owner_id` (FK `users.id` ON DELETE CASCADE), `name`, `subject`, `html_content`, `text_content`, timestamps.
-5. **`EmailCampaign`** (`email_campaigns` table): `id` (UUID PK), `owner_id` (FK `users.id` ON DELETE CASCADE), `name`, `subject`, `template_id` (FK `email_templates.id` ON DELETE RESTRICT), `contact_list_id` (FK `contact_lists.id` ON DELETE RESTRICT), `status` (Default 'draft', Indexed), timestamps.
+5. **`EmailCampaign`** (`email_campaigns` table):
+   - `id`: UUID (PK)
+   - `owner_id`: UUID (FK `users.id` ON DELETE CASCADE, Indexed)
+   - `name`: VARCHAR(255)
+   - `subject`: VARCHAR(255)
+   - `template_id`: UUID (FK `email_templates.id` ON DELETE RESTRICT, Indexed)
+   - `contact_list_id`: UUID (FK `contact_lists.id` ON DELETE RESTRICT, Indexed)
+   - `status`: VARCHAR(50) (Indexed: `draft`, `ready`, `scheduled`, `queued`, `sending`, `completed`, `failed`, `cancelled`)
+   - `scheduled_at`: TIMESTAMP WITH TIME ZONE (Nullable, Indexed)
+   - `timezone`: VARCHAR(50) (Nullable)
+   - `from_name`: VARCHAR(255) (Nullable)
+   - `from_email`: VARCHAR(255) (Nullable)
+   - `reply_to`: VARCHAR(255) (Nullable)
+   - timestamps
 6. **`CampaignRecipient`** (`campaign_recipients` table):
    - `id`: UUID (PK)
    - `campaign_id`: UUID (FK `email_campaigns.id` ON DELETE CASCADE, Indexed)
@@ -95,76 +79,21 @@
    - timestamps
 7. **`ImportJob`** (`import_jobs` table): `id`, `owner_id`, `contact_list_id`, `status`, `original_filename`, `file_path`, row counters, `completed_at`, timestamps.
 8. **`ImportError`** (`import_errors` table): `id`, `import_job_id`, `row_number`, `error_type`, `message`, `created_at`.
-9. **`TrackingEvent`** (`tracking_events` table):
-   - `id`: UUID (PK)
-   - `campaign_id`: UUID (FK `email_campaigns.id` ON DELETE CASCADE, Indexed)
-   - `campaign_recipient_id`: UUID (FK `campaign_recipients.id` ON DELETE CASCADE, Indexed)
-   - `event_type`: VARCHAR(50) (Indexed: `opened`, `bounced`)
-   - `occurred_at`: TIMESTAMP WITH TIME ZONE
-   - `received_at`: TIMESTAMP WITH TIME ZONE
-   - `provider_event_id`: VARCHAR(255) (Nullable)
-   - `created_at`: TIMESTAMP WITH TIME ZONE
-10. **`WebhookEvent`** (`webhook_events` table):
-    - `id`: UUID (PK)
-    - `provider`: VARCHAR(50)
-    - `provider_event_id`: VARCHAR(255)
-    - `event_type`: VARCHAR(50)
-    - `payload_json`: JSON
-    - `status`: VARCHAR(50) (Indexed: `received`, `processing`, `processed`, `ignored`, `failed`)
-    - `error_message`: VARCHAR(500) (Nullable)
-    - `received_at`: TIMESTAMP WITH TIME ZONE
-    - `processed_at`: TIMESTAMP WITH TIME ZONE (Nullable)
-    - timestamps
-    - Unique Constraint on `(provider, provider_event_id)`
+9. **`TrackingEvent`** (`tracking_events` table): `id`, `campaign_id`, `campaign_recipient_id`, `event_type`, `occurred_at`, `received_at`, `provider_event_id`, `created_at`.
+10. **`WebhookEvent`** (`webhook_events` table): `id`, `provider`, `provider_event_id`, `event_type`, `payload_json`, `status`, `error_message`, `received_at`, `processed_at`, timestamps. Unique on `(provider, provider_event_id)`.
 
 ---
 
-## Statistics
+## 🗺️ Version Roadmap
 
-- **API Endpoint**: `GET /api/v1/campaigns/{campaign_id}/stats` (Authenticated, Owner only).
-- **SQL Aggregation Metrics**:
-  - `total_recipients`: `COUNT(id)`
-  - `sent_count`: `COUNT(CASE WHEN status IN ('sent', 'bounced') OR sent_at IS NOT NULL THEN 1 END)`
-  - `failed_count`: `COUNT(CASE WHEN status = 'failed' THEN 1 END)`
-  - `bounced_count`: `COUNT(CASE WHEN status = 'bounced' OR bounced_at IS NOT NULL THEN 1 END)`
-  - `opened_count`: `COUNT(CASE WHEN opened_at IS NOT NULL THEN 1 END)`
-  - `open_rate`: `opened_count / sent_count` (0.0 if `sent_count == 0`)
-  - `bounce_rate`: `bounced_count / sent_count` (0.0 if `sent_count == 0`)
-
----
-
-## Architectural Decisions
-
-1. **Tracking events are immutable history**: `TrackingEvent` records historical occurrences and has no update/delete endpoints.
-2. **CampaignRecipient remains delivery source of truth**: Tracks current delivery lifecycle and core timestamps (`sent_at`, `failed_at`, `opened_at`, `bounced_at`).
-3. **Open and delivery state are separate**: An `opened` event updates `opened_at` without redefining or overwriting `SENT` delivery status.
-4. **Webhooks are asynchronous**: Webhook router validates signatures, creates `WebhookEvent`, enqueues Celery, and responds with `HTTP 202 Accepted` immediately.
-5. **Webhook events are idempotent**: Enforced at the database layer via unique constraint on `(provider, provider_event_id)`.
-6. **Provider-specific webhook payloads are normalized**: `BaseWebhookParser` produces standardized `NormalizedWebhookEvent` instances, decoupling domain logic from provider schemas.
-7. **PostgreSQL remains source of truth**: All states, events, and metrics are persisted durably in PostgreSQL.
-8. **Tracking URLs use public configuration, not Host headers**: Generated using `settings.PUBLIC_API_BASE_URL`.
-9. **No click tracking in V5**: Reserved for future versions.
-10. **No unsubscribe/suppression system in V5**: Reserved for future versions.
-11. **Frontend consumes real backend APIs exclusively**: No mock production data or simulated metrics; all statistics, tables, and states originate from authoritative FastAPI endpoints.
-
----
-
-## Current Work
-
-- None.
-
----
-
-## Roadmap
-
-- **V1 (Audience Management)**: Complete
-- **V2 (Campaign Engine)**: Complete
-- **V3 (Celery Campaign Execution)**: Complete
-- **V4 (Bulk Data Management)**: Complete
-- **V5 (Tracking & Webhooks)**: Complete
-- **Frontend V1 (Campaign Manager Dashboard)**: Complete
-- **V6 (Scheduling)**: Planned
-- **V7 (Compliance & Unsubscribe)**: Planned
-- **V8 (Template Variables)**: Planned
-- **V9 (Click Tracking)**: Planned
-- **V10 (Analytics Dashboard)**: Planned
+- [x] **V1 (Audience Management)**: Complete
+- [x] **V2 (Campaign Engine)**: Complete
+- [x] **V3 (Celery Campaign Execution)**: Complete
+- [x] **V4 (Bulk Data Management)**: Complete
+- [x] **V5 (Tracking & Webhooks)**: Complete
+- [x] **Frontend V1 (Campaign Manager Dashboard)**: Complete
+- [x] **V6 (Production Email Delivery & Campaign Scheduling)**: Complete
+- [ ] **V7 (Compliance & Unsubscribe)**: Planned
+- [ ] **V8 (Template Variables)**: Planned
+- [ ] **V9 (Click Tracking)**: Planned
+- [ ] **V10 (Analytics Dashboard)**: Planned

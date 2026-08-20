@@ -518,7 +518,7 @@ export const ContactListDetailPage: React.FC = () => {
               </div>
 
               {/* View Errors Button if errors exist */}
-              {activeJob && activeJob.error_count > 0 && (
+              {activeJob && (activeJob.error_count ?? 0) > 0 && (
                 <div className="pt-2">
                   <Button
                     variant="outline"
@@ -527,7 +527,7 @@ export const ContactListDetailPage: React.FC = () => {
                     leftIcon={<FileWarning className="w-3.5 h-3.5" />}
                     onClick={() => setIsViewingErrors(!isViewingErrors)}
                   >
-                    {isViewingErrors ? 'Hide Error Details' : `View ${activeJob.error_count} Row Errors`}
+                    {isViewingErrors ? 'Hide Error Details' : `View ${activeJob.error_count ?? 0} Row Errors`}
                   </Button>
 
                   {/* Errors Table */}

@@ -48,3 +48,25 @@ def execute_campaign_task(self, campaign_id: str):
             exc_info=True,
         )
         raise exc
+
+
+@celery_app.task(
+    name="app.tasks.campaign_tasks.check_scheduled_campaigns_task",
+)
+def check_scheduled_campaigns_task():
+    """
+    Periodic Celery Beat task that triggers due scheduled campaigns.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.services.campaign_service import campaign_service
+
+    async def _run():
+        async with AsyncSessionLocal() as session:
+            count = await campaign_service.trigger_due_scheduled_campaigns(session)
+            if count > 0:
+                logger.info(f"Celery Beat check triggered {count} due scheduled campaigns.")
+
+    try:
+        asyncio.run(_run())
+    except Exception as exc:
+        logger.error(f"Error checking scheduled campaigns in Celery Beat: {exc}", exc_info=True)

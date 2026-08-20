@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.rate_limiter import email_rate_limiter
 from app.models.campaign import EmailCampaign
 from app.models.recipient import CampaignRecipient
 from app.providers import get_email_provider
@@ -31,7 +32,8 @@ async def _get_session(db: Optional[AsyncSession] = None) -> AsyncGenerator[Asyn
 
 class CampaignExecutionService:
     """
-    Service executing campaign batches in the background Celery worker.
+    Service executing campaign batches in the background Celery worker with rate limiting,
+    sender identity injection, and transient failure retries.
     """
 
     def _inject_tracking_pixel(self, html_content: Optional[str], tracking_token: Optional[str]) -> Optional[str]:
@@ -54,7 +56,8 @@ class CampaignExecutionService:
         db: Optional[AsyncSession] = None,
     ) -> None:
         """
-        Idempotently process all pending recipients of a campaign in configurable batches.
+        Idempotently process all pending recipients of a campaign in configurable batches,
+        applying distributed rate limiting and sender configuration.
         """
         async with _get_session(db) as session:
             # 1. Fetch Campaign
@@ -69,7 +72,7 @@ class CampaignExecutionService:
                 CampaignStatus.FAILED.value,
                 CampaignStatus.CANCELLED.value,
             ]:
-                logger.info(f"[Task {task_id}] Campaign {campaign_id} already in terminal status '{campaign.status}'.")
+                logger.info(f"[Task {task_id}] Campaign {campaign_id} in terminal/cancelled status '{campaign.status}'. Aborting execution.")
                 return
 
             # 2. Fetch Template Content
@@ -80,18 +83,30 @@ class CampaignExecutionService:
                 await session.commit()
                 return
 
-            # 3. Transition QUEUED -> SENDING
-            if campaign.status == CampaignStatus.QUEUED.value:
+            # 3. Transition QUEUED / SCHEDULED -> SENDING
+            if campaign.status in [CampaignStatus.QUEUED.value, CampaignStatus.SCHEDULED.value]:
                 campaign.status = CampaignStatus.SENDING.value
                 await session.commit()
                 logger.info(f"[Task {task_id}] Campaign {campaign_id} transitioned to SENDING.")
 
             email_provider = get_email_provider()
             batch_size = settings.CAMPAIGN_BATCH_SIZE
+            max_retries = settings.MAX_RECIPIENT_RETRIES
             has_transient_failure = False
+
+            # Determine sender configuration (campaign override or global default)
+            from_name = campaign.from_name or settings.EMAIL_FROM_NAME
+            from_email = campaign.from_email or settings.EMAIL_FROM_ADDRESS
+            reply_to = campaign.reply_to or settings.EMAIL_REPLY_TO
 
             # 4. Batch Processing Loop
             while True:
+                # Check if campaign was cancelled during in-flight batch execution
+                await session.refresh(campaign)
+                if campaign.status == CampaignStatus.CANCELLED.value:
+                    logger.warning(f"[Task {task_id}] Campaign {campaign_id} was cancelled during execution. Stopping further dispatches.")
+                    break
+
                 # Query next pending or stale processing recipients
                 recipients = await recipient_repository.get_unprocessed_batch(
                     session,
@@ -107,11 +122,13 @@ class CampaignExecutionService:
                     r.attempts += 1
                 await session.commit()
 
-                # Dispatch emails for this batch
+                # Dispatch emails for this batch with distributed rate limiting
                 for recipient in recipients:
-                    # Skip if somehow already sent
                     if recipient.status == RecipientStatus.SENT.value:
                         continue
+
+                    # Distributed Rate Limiting Throttling
+                    await email_rate_limiter.acquire(1)
 
                     # Inject tracking pixel into HTML
                     rendered_html = self._inject_tracking_pixel(
@@ -124,6 +141,9 @@ class CampaignExecutionService:
                         subject=template.subject,
                         html_content=rendered_html,
                         text_content=template.text_content,
+                        from_name=from_name,
+                        from_email=from_email,
+                        reply_to=reply_to,
                         metadata={"campaign_id": str(campaign_id), "recipient_id": str(recipient.id)},
                     )
 
@@ -138,7 +158,7 @@ class CampaignExecutionService:
                             recipient.error_message = None
                         else:
                             if result.is_transient:
-                                if recipient.attempts < 3:
+                                if recipient.attempts < max_retries:
                                     # Leave as pending for Celery backoff retry
                                     recipient.status = RecipientStatus.PENDING.value
                                     has_transient_failure = True
@@ -166,14 +186,14 @@ class CampaignExecutionService:
                     raise TransientCampaignError("Temporary email provider failure detected during batch dispatch.")
 
             # 5. Check Final Campaign State
-            unprocessed_count = await recipient_repository.count_unprocessed(session, campaign_id=campaign_id)
-            if unprocessed_count == 0:
-                # Reload campaign and mark COMPLETED
-                campaign = await campaign_repository.get_by_id(session, campaign_id=campaign_id)
-                if campaign and campaign.status == CampaignStatus.SENDING.value:
-                    campaign.status = CampaignStatus.COMPLETED.value
-                    await session.commit()
-                    logger.info(f"[Task {task_id}] Campaign {campaign_id} successfully COMPLETED.")
+            await session.refresh(campaign)
+            if campaign.status != CampaignStatus.CANCELLED.value:
+                unprocessed_count = await recipient_repository.count_unprocessed(session, campaign_id=campaign_id)
+                if unprocessed_count == 0:
+                    if campaign.status == CampaignStatus.SENDING.value:
+                        campaign.status = CampaignStatus.COMPLETED.value
+                        await session.commit()
+                        logger.info(f"[Task {task_id}] Campaign {campaign_id} successfully COMPLETED.")
 
 
 campaign_execution_service = CampaignExecutionService()

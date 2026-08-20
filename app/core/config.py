@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Optional, Union
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -34,8 +34,24 @@ class Settings(BaseSettings):
     IMPORT_BATCH_SIZE: int = 500
     STORAGE_LOCAL_DIR: str = "uploads/imports"
 
-    # Email Provider Configuration ("mock", "ses", "sendgrid", "resend", "mailgun")
+    # Email Provider Configuration ("mock", "smtp", "ses", "sendgrid", "resend", "mailgun")
     EMAIL_PROVIDER: str = "mock"
+    EMAIL_PROVIDER_TIMEOUT_SECONDS: int = 15
+    EMAIL_RATE_LIMIT_PER_SECOND: int = 50
+    MAX_RECIPIENT_RETRIES: int = 3
+
+    # Default Sender Identity
+    EMAIL_FROM_ADDRESS: str = "campaigns@sherify.internal"
+    EMAIL_FROM_NAME: str = "Sherify Campaigns"
+    EMAIL_REPLY_TO: Optional[str] = "support@sherify.internal"
+
+    # SMTP Provider Configuration
+    SMTP_HOST: str = "localhost"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_USE_TLS: bool = True
+    SMTP_USE_SSL: bool = False
 
     # Webhook Configuration
     WEBHOOK_SIGNING_SECRET: str = "dev-webhook-signing-secret"

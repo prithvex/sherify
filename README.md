@@ -10,13 +10,13 @@
 [![Redis](https://img.shields.io/badge/Redis-7-red.svg)](https://redis.io)
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue.svg)](https://www.docker.com)
 
-> **Current Implementation Status**: **Frontend V1 + Backend V1–V5 Completed.**
+> **Current Implementation Status**: **V6 — Production Email Delivery & Campaign Scheduling (Full Backend + Frontend UI Completed).**
 
 ---
 
 ## 📖 Project Purpose
 
-The **Automated Mass Campaign Manager** is a high-scale, production-oriented email campaign platform engineered to manage audiences, ingest large subscriber datasets via streaming CSV imports, compose reusable templates with safe live preview, execute high-volume campaigns asynchronously with Celery/Redis, track email opens via tracking pixels, ingest delivery/bounce provider webhooks, and visualize durable SQL-aggregated analytics in a sleek SaaS dashboard.
+The **Automated Mass Campaign Manager** is a high-scale, production-oriented email campaign platform engineered to manage audiences, ingest large subscriber datasets via streaming CSV imports, compose reusable templates with safe live preview, execute high-volume campaigns asynchronously with Celery/Redis, schedule timezone-aware broadcasts via Celery Beat, dispatch real emails via SMTP or Mock providers, throttle sending with distributed rate limiters, track email opens via tracking pixels, ingest delivery/bounce provider webhooks, and visualize durable SQL-aggregated analytics in a sleek SaaS dashboard.
 
 ---
 
@@ -25,7 +25,7 @@ The **Automated Mass Campaign Manager** is a high-scale, production-oriented ema
 ```
 ┌────────────────────────────────────────────────────────┐
 │             Frontend SPA (React 18 + TS + Vite)         │
-│   (Dashboard, Audiences, CSV Import, Templates, Stats) │
+│   (Dashboard, Audiences, CSV Import, Scheduling, Stats)│
 └───────────────────────────┬────────────────────────────┘
                             │ (REST HTTP / JWT Bearer)
 ┌───────────────────────────▼────────────────────────────┐
@@ -38,17 +38,17 @@ The **Automated Mass Campaign Manager** is a high-scale, production-oriented ema
                       │       │ Redis Broker │
                       │       └──────┬───────┘
                       │              │
-                      │       ┌──────▼───────┐
-                      │       │ Celery Worker│
-                      │       │  (Batching)  │
-                      │       └──────┬───────┘
-                      │              │ (Dispatch / Parse)
-                      │       ┌──────▼───────┐
-                      │       │Storage/Email │
-                      │       └──────┬───────┘
+                      │       ┌──────▼──────────────┐
+                      │       │ Celery Worker / Beat│
+                      │       │ (Batching/Scheduler)│
+                      │       └──────┬──────────────┘
+                      │              │ (Dispatch / Rate Limit)
+                      │       ┌──────▼──────────────┐
+                      │       │  SMTP / Mock Email  │
+                      │       └──────┬──────────────┘
 ┌─────────────────────▼──────────────▼───────────────────┐
 │                  Repository Layer                      │
-│     (Async queries, pagination, DB filter logic)       │
+│     (Async queries, row locking, DB filter logic)      │
 └───────────────────────────┬────────────────────────────┘
                             │
 ┌───────────────────────────▼────────────────────────────┐
@@ -63,18 +63,18 @@ The **Automated Mass Campaign Manager** is a high-scale, production-oriented ema
 
 ```
 sherify/
-├── alembic/                    # Async database migration scripts (001-005)
+├── alembic/                    # Async database migration scripts (001-006)
 ├── app/                        # FastAPI Backend core package
 │   ├── api/                    # API router layer (auth, users, contact_lists, templates, campaigns, imports, webhooks, tracking)
-│   ├── core/                   # Config, database engine, password hashing, JWT
+│   ├── core/                   # Config, rate limiter, database engine, password hashing, JWT
 │   ├── models/                 # SQLAlchemy models (User, ContactList, Subscriber, Template, Campaign, Recipient, Import, Tracking)
-│   ├── providers/              # Email provider abstraction (MockEmailProvider)
+│   ├── providers/              # Email provider abstraction (BaseEmailProvider, SMTPProvider, MockEmailProvider)
 │   ├── webhooks/               # Webhook verifiers & parsers (MockWebhookVerifier/Parser)
 │   ├── storage/                # File storage abstraction (LocalFileStorage)
 │   ├── repositories/           # Data access repository layer
 │   ├── schemas/                # Pydantic validation models & DTOs
-│   ├── services/               # Business logic layer
-│   ├── tasks/                  # Celery background tasks (campaigns, imports, webhooks)
+│   ├── services/               # Business logic layer (CampaignService, CampaignExecutionService, ImportService, etc.)
+│   ├── tasks/                  # Celery background & periodic tasks (campaign_tasks, import_tasks, webhook_tasks)
 │   └── main.py                 # FastAPI application root & tracking pixel route
 ├── frontend/                   # React + TypeScript + Vite SPA
 │   ├── src/
@@ -88,8 +88,8 @@ sherify/
 │   ├── package.json
 │   ├── tailwind.config.js
 │   └── vite.config.ts
-├── tests/                      # Pytest backend async test suite (108 tests)
-├── docker-compose.yml          # Full-stack orchestration (API, Worker, Frontend, PostgreSQL, Redis)
+├── tests/                      # Pytest backend async test suite (123 tests)
+├── docker-compose.yml          # Full-stack orchestration (API, Worker, Beat, Frontend, PostgreSQL, Redis)
 ├── memory.md                   # Engineering memory & version status tracker
 └── README.md                   # System documentation
 ```
@@ -126,6 +126,9 @@ uvicorn app.main:app --reload --port 8000
 
 # Start Celery Worker
 celery -A app.tasks.celery_app.celery_app worker --loglevel=info
+
+# Start Celery Beat Periodic Scheduler
+celery -A app.tasks.celery_app.celery_app beat --loglevel=info
 ```
 
 #### Frontend Setup:
@@ -140,12 +143,12 @@ Accessible at [http://localhost:3000](http://localhost:3000).
 
 ## 🧪 Testing
 
-### Backend Test Suite (108 Tests):
+### Backend Test Suite (123 Tests):
 ```bash
 pytest -v
 ```
 
-### Frontend Test Suite (9 Tests):
+### Frontend Test Suite (11 Tests):
 ```bash
 cd frontend
 npm test
@@ -203,16 +206,18 @@ npm run build
 | `PATCH` | `/api/v1/templates/{template_id}` | Update email template details | Bearer Token |
 | `DELETE` | `/api/v1/templates/{template_id}` | Delete email template (blocked if referenced by campaign) | Bearer Token |
 
-### 6. Email Campaigns & Asynchronous Execution (V2 + V3)
+### 6. Email Campaigns, Scheduling & Asynchronous Execution (V2 + V3 + V6)
 | Method | Endpoint | Description | Auth Required |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/v1/campaigns` | Create campaign (defaults to `DRAFT`) | Bearer Token |
+| `POST` | `/api/v1/campaigns` | Create campaign (defaults to `DRAFT`, supports custom sender fields) | Bearer Token |
 | `GET` | `/api/v1/campaigns` | List campaigns (paginated, status & search filter) | Bearer Token |
 | `GET` | `/api/v1/campaigns/{campaign_id}` | Get single campaign by ID | Bearer Token |
 | `PATCH` | `/api/v1/campaigns/{campaign_id}` | Update campaign (allowed only for `DRAFT`) | Bearer Token |
 | `DELETE` | `/api/v1/campaigns/{campaign_id}` | Delete campaign | Bearer Token |
 | `POST` | `/api/v1/campaigns/{campaign_id}/ready` | Validate and transition `DRAFT` → `READY` | Bearer Token |
 | `POST` | `/api/v1/campaigns/{campaign_id}/send` | Snapshot recipients, transition `READY` → `QUEUED`, and enqueue background execution (`HTTP 202 Accepted`) | Bearer Token |
+| `POST` | `/api/v1/campaigns/{campaign_id}/schedule` | Schedule a READY campaign for future timezone-aware dispatch (`SCHEDULED`) | Bearer Token |
+| `POST` | `/api/v1/campaigns/{campaign_id}/cancel` | Cancel an uncompleted campaign (`SCHEDULED`, `QUEUED`, `READY`) | Bearer Token |
 | `GET` | `/api/v1/campaigns/{campaign_id}/stats` | Retrieve SQL-aggregated delivery and engagement statistics (sent, failed, bounced, opened, rates) | Bearer Token |
 
 ### 7. Tracking & Webhooks (V5)
@@ -232,7 +237,7 @@ npm run build
 - [x] **V4** — Bulk CSV Data Management (Asynchronous CSV ingestion, streaming parser, batch inserts, duplicate handling, import error logs).
 - [x] **V5** — Tracking & Webhooks (Open tracking pixels, provider webhook signature verification, async bounce handling, recipient history, campaign stats).
 - [x] **Frontend V1** — Complete React + TypeScript + Vite Campaign Manager Dashboard UI.
-- [ ] **V6** — Campaign Scheduling
+- [x] **V6** — Production Email Delivery & Campaign Scheduling (SMTP provider, sender identity, timezone-aware scheduling, Celery Beat periodic triggers, cancellation, distributed rate limiting).
 - [ ] **V7** — Unsubscribe + Compliance
 - [ ] **V8** — Template Variables
 - [ ] **V9** — Click Tracking

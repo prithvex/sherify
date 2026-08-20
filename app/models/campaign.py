@@ -1,6 +1,7 @@
 import uuid
-from typing import TYPE_CHECKING, List
-from sqlalchemy import ForeignKey, String
+from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, UUIDMixin, TimestampMixin
@@ -49,6 +50,29 @@ class EmailCampaign(Base, UUIDMixin, TimestampMixin):
         default="draft",
         nullable=False,
         index=True,
+    )
+
+    # V6 Scheduling and Sender Identity fields
+    scheduled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+    timezone: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    from_name: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    from_email: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    reply_to: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
     )
 
     # Relationships

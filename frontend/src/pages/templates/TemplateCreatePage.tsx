@@ -47,8 +47,8 @@ export const TemplateCreatePage: React.FC = () => {
     createMutation.mutate({
       name: name.trim(),
       subject: subject.trim(),
-      html_content: htmlContent || null,
-      text_content: textContent || null,
+      html_content: htmlContent || '',
+      text_content: textContent || undefined,
     });
   };
 

@@ -9,6 +9,8 @@ import {
   Eye,
   TrendingUp,
   RotateCcw,
+  Calendar,
+  UserCheck,
 } from 'lucide-react';
 import { campaignsApi } from '../../api/campaigns';
 import { Button } from '../../components/common/Button';
@@ -112,6 +114,46 @@ export const CampaignAnalyticsPage: React.FC = () => {
           >
             Refresh Stats
           </Button>
+        </div>
+      </div>
+
+      {/* Campaign Metadata Bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+          <span className="text-slate-500 uppercase tracking-wider text-[10px] font-bold block mb-1">
+            Subject Line
+          </span>
+          <p className="text-slate-200 font-semibold truncate">{campaign?.subject}</p>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 flex items-start gap-3">
+          <UserCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          <div className="space-y-0.5 truncate">
+            <span className="text-slate-500 uppercase tracking-wider text-[10px] font-bold block">
+              Sender Identity
+            </span>
+            <p className="text-slate-200 font-medium truncate">
+              {campaign?.from_name ? `${campaign.from_name} <${campaign.from_email}>` : 'System Default Sender'}
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 flex items-start gap-3">
+          <Calendar className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <span className="text-slate-500 uppercase tracking-wider text-[10px] font-bold block">
+              Dispatch Schedule
+            </span>
+            <p className="text-slate-200 font-medium">
+              {campaign?.scheduled_at ? (
+                <span>
+                  {new Date(campaign.scheduled_at).toLocaleString()} ({campaign.timezone || 'UTC'})
+                </span>
+              ) : (
+                'Immediate Dispatch'
+              )}
+            </p>
+          </div>
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, UserCheck, ChevronDown, ChevronUp } from 'lucide-react';
 import { campaignsApi } from '../../api/campaigns';
 import { contactListsApi } from '../../api/contactLists';
 import { templatesApi } from '../../api/templates';
@@ -19,6 +19,13 @@ export const CampaignCreatePage: React.FC = () => {
   const [subject, setSubject] = useState('');
   const [templateId, setTemplateId] = useState('');
   const [contactListId, setContactListId] = useState('');
+
+  // Optional Sender Identity Overrides
+  const [showSenderOptions, setShowSenderOptions] = useState(false);
+  const [fromName, setFromName] = useState('');
+  const [fromEmail, setFromEmail] = useState('');
+  const [replyTo, setReplyTo] = useState('');
+
   const [error, setError] = useState<string | null>(null);
 
   // Fetch available contact lists
@@ -58,6 +65,9 @@ export const CampaignCreatePage: React.FC = () => {
       subject: subject.trim(),
       template_id: templateId,
       contact_list_id: contactListId,
+      from_name: fromName.trim() || undefined,
+      from_email: fromEmail.trim() || undefined,
+      reply_to: replyTo.trim() || undefined,
     });
   };
 
@@ -87,7 +97,7 @@ export const CampaignCreatePage: React.FC = () => {
               Create New Campaign
             </h2>
             <p className="text-xs text-slate-400 mt-1">
-              Assemble campaign details, select target audience, and choose email template
+              Assemble campaign details, select target audience, choose email template, and set sender identity
             </p>
           </div>
         </div>
@@ -157,6 +167,51 @@ export const CampaignCreatePage: React.FC = () => {
               </p>
             )}
           </div>
+        </div>
+
+        {/* Expandable Custom Sender Options */}
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-4">
+          <button
+            type="button"
+            onClick={() => setShowSenderOptions(!showSenderOptions)}
+            className="w-full flex items-center justify-between text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <UserCheck className="w-4 h-4 text-emerald-400" />
+              Custom Sender Identity (Optional Override)
+            </span>
+            {showSenderOptions ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+
+          {showSenderOptions && (
+            <div className="pt-3 border-t border-slate-800/80 space-y-4 text-xs">
+              <p className="text-[11px] text-slate-400">
+                Leave blank to use system default sender (<code className="text-slate-300">campaigns@sherify.internal</code>).
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input
+                  label="From Name"
+                  placeholder="e.g. Acme Marketing Team"
+                  value={fromName}
+                  onChange={(e) => setFromName(e.target.value)}
+                />
+                <Input
+                  type="email"
+                  label="From Email Address"
+                  placeholder="e.g. news@yourcompany.com"
+                  value={fromEmail}
+                  onChange={(e) => setFromEmail(e.target.value)}
+                />
+              </div>
+              <Input
+                type="email"
+                label="Reply-To Email Address"
+                placeholder="e.g. support@yourcompany.com"
+                value={replyTo}
+                onChange={(e) => setReplyTo(e.target.value)}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-3 pt-6 border-t border-slate-800">
